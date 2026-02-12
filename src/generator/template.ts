@@ -1,0 +1,339 @@
+import type { CLIModel, Command, CommandParam } from "./types";
+
+function escapeForTemplate(s: unknown): string {
+  if (s == null) return '';
+  const str = String(s);
+  return str.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+}
+
+function isValidIdentifier(name: unknown): boolean {
+  if (name == null || typeof name !== 'string') return false;
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+}
+
+function sanitizeIdentifier(name: unknown): string {
+  if (name == null) return '_unnamed';
+  const str = String(name);
+  if (isValidIdentifier(str)) return str;
+  return str.replace(/[^a-zA-Z0-9_$]/g, '_') || '_unnamed';
+}
+
+export function generateCLISource(model: CLIModel): string {
+  const resourceCases = model.resources
+    .map((r) => generateResourceCase(r.name, r.commands, model))
+    .join("\n\n");
+
+  return `#!/usr/bin/env bun
+// Generated CLI for ${escapeForTemplate(model.name)}
+// Version: ${escapeForTemplate(model.version)}
+
+const CLI_NAME = ${JSON.stringify(model.name)};
+const CLI_VERSION = ${JSON.stringify(model.version)};
+const CLI_DESCRIPTION = ${JSON.stringify(model.description)};
+const BASE_URL = ${JSON.stringify(model.baseUrl)};
+
+// ============ Config Manager ============
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { join } from "path";
+
+class ConfigManager {
+  private configPath: string;
+  private data: Record<string, string>;
+
+  constructor() {
+    const baseDir = join(process.env.HOME || "~", ".config");
+    const cliDir = join(baseDir, CLI_NAME);
+    if (!existsSync(cliDir)) mkdirSync(cliDir, { recursive: true });
+    this.configPath = join(cliDir, "config.json");
+    this.data = this.load();
+  }
+
+  private load(): Record<string, string> {
+    if (existsSync(this.configPath)) {
+      try { return JSON.parse(readFileSync(this.configPath, "utf-8")); }
+      catch { return {}; }
+    }
+    return {};
+  }
+
+  private save(): void {
+    writeFileSync(this.configPath, JSON.stringify(this.data, null, 2));
+  }
+
+  get(key: string): string | undefined { return this.data[key]; }
+  set(key: string, value: string): void { this.data[key] = value; this.save(); }
+  delete(key: string): void { delete this.data[key]; this.save(); }
+  list(): Record<string, string> { return { ...this.data }; }
+}
+
+// ============ HTTP Client ============
+class HttpClient {
+  private headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  setToken(token: string): void {
+    this.headers["Authorization"] = \`Bearer \${token}\`;
+  }
+
+  setHeader(name: string, value: string): void {
+    this.headers[name] = value;
+  }
+
+  buildUrl(path: string, pathParams: Record<string, string> = {}, queryParams: Record<string, string> = {}): string {
+    let url = path;
+    for (const [key, value] of Object.entries(pathParams)) {
+      url = url.replace(\`{\${key}}\`, encodeURIComponent(value));
+    }
+    const fullUrl = \`\${BASE_URL}\${url}\`;
+    const query = new URLSearchParams(queryParams).toString();
+    return query ? \`\${fullUrl}?\${query}\` : fullUrl;
+  }
+
+  async request(method: string, path: string, options: { pathParams?: Record<string, string>; queryParams?: Record<string, string>; body?: unknown } = {}) {
+    const url = this.buildUrl(path, options.pathParams, options.queryParams);
+    const response = await fetch(url, {
+      method,
+      headers: this.headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    return { data, status: response.status };
+  }
+}
+
+// ============ Output ============
+function output(data: unknown, format: string): void {
+  const isTTY = process.stdout.isTTY;
+  if (format === "table" && Array.isArray(data)) {
+    console.log(formatTable(data));
+  } else if (isTTY) {
+    console.log(JSON.stringify(data, null, 2));
+  } else {
+    console.log(JSON.stringify(data));
+  }
+}
+
+function formatTable(data: Record<string, unknown>[]): string {
+  if (data.length === 0) return "";
+  const keys = Object.keys(data[0]);
+  const widths = keys.map((k) => Math.max(k.length, ...data.map((r) => String(r[k] ?? "").length)));
+  const header = keys.map((k, i) => k.padEnd(widths[i])).join("  ");
+  const sep = widths.map((w) => "-".repeat(w)).join("  ");
+  const rows = data.map((r) => keys.map((k, i) => String(r[k] ?? "").padEnd(widths[i])).join("  "));
+  return [header, sep, ...rows].join("\\n");
+}
+
+// ============ Arg Parser ============
+function parseArgs(args: string[]): { positional: string[]; flags: Record<string, string | boolean> } {
+  const positional: string[] = [];
+  const flags: Record<string, string | boolean> = {};
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      const next = args[i + 1];
+      if (next && !next.startsWith("--")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  return { positional, flags };
+}
+
+// ============ Help ============
+function showHelp(): void {
+  console.log(\`\${CLI_NAME} - \${CLI_DESCRIPTION}
+
+Usage: \${CLI_NAME} <command> [options]
+
+Commands:
+  config          Manage configuration
+${model.resources.map((r) => `  ${escapeForTemplate(r.name).padEnd(15)} ${escapeForTemplate(r.description)}`).join("\n")}
+
+Global Options:
+  --token         API token
+  --output        Output format (json|table)
+  --help          Show help
+  --version       Show version
+
+Run '\${CLI_NAME} <command> --help' for command-specific help.\`);
+}
+
+function showVersion(): void {
+  console.log(\`\${CLI_NAME} v\${CLI_VERSION}\`);
+}
+
+// ============ Main ============
+async function main() {
+  const config = new ConfigManager();
+  const http = new HttpClient();
+  const { positional, flags } = parseArgs(process.argv.slice(2));
+
+  // Global flags
+  if (flags.help && positional.length === 0) { showHelp(); return; }
+  if (flags.version) { showVersion(); return; }
+
+  const outputFormat = (flags.output as string) || "json";
+
+  // Auth
+  const token = (flags.token as string) || process.env.${model.name.toUpperCase().replace(/-/g, "_")}_TOKEN || config.get("token");
+  if (token) http.setToken(token);
+
+  // Custom headers
+  if (flags.header) {
+    const [name, value] = (flags.header as string).split(":");
+    if (name && value) http.setHeader(name.trim(), value.trim());
+  }
+
+  const [cmd, subcmd, ...rest] = positional;
+
+  if (!cmd) { showHelp(); process.exit(1); }
+
+  // Config commands
+  if (cmd === "config") {
+    if (subcmd === "set" && rest[0] && rest[1]) {
+      config.set(rest[0], rest[1]);
+      console.log(\`Set \${rest[0]}\`);
+    } else if (subcmd === "get" && rest[0]) {
+      console.log(config.get(rest[0]) ?? "");
+    } else if (subcmd === "list") {
+      output(config.list(), outputFormat);
+    } else if (subcmd === "delete" && rest[0]) {
+      config.delete(rest[0]);
+      console.log(\`Deleted \${rest[0]}\`);
+    } else {
+      console.log(\`Usage: \${CLI_NAME} config <set|get|list|delete> [key] [value]\`);
+    }
+    return;
+  }
+
+${resourceCases}
+
+  console.error(\`Unknown command: \${cmd}\`);
+  process.exit(1);
+}
+
+main().catch((err) => {
+  console.error("Error: An unexpected error occurred. Use --help for usage information.");
+  process.exit(1);
+});
+`;
+}
+
+function generateResourceCase(resourceName: string, commands: Command[], model: CLIModel): string {
+  const commandCases = commands.map((cmd) => generateCommandCase(cmd, model)).join("\n\n");
+
+  const safeResourceName = escapeForTemplate(resourceName);
+  const safeModelName = escapeForTemplate(model.name);
+
+  return `  // ${safeResourceName} commands
+  if (cmd === ${JSON.stringify(resourceName)}) {
+    if (flags.help && !subcmd) {
+      console.log(\`${safeModelName} ${safeResourceName} - ${safeResourceName} operations
+
+Usage: ${safeModelName} ${safeResourceName} <command> [options]
+
+Commands:
+${commands.map((c) => `  ${escapeForTemplate(c.name).padEnd(15)} ${escapeForTemplate(c.description)}`).join("\n")}\`);
+      return;
+    }
+
+${commandCases}
+
+    console.error(\`Unknown ${safeResourceName} command: \${subcmd}\`);
+    process.exit(1);
+  }`;
+}
+
+function generateCommandCase(cmd: Command, model: CLIModel): string {
+  const pathParams = cmd.params.filter((p) => p.location === "path");
+  const queryParams = cmd.params.filter((p) => p.location === "query");
+
+  const pathParamExtract = pathParams
+    .map((p, i) => `const ${sanitizeIdentifier(p.name)} = rest[${i}];`)
+    .join("\n      ");
+
+  const pathParamCheck = pathParams
+    .filter((p) => p.required)
+    .map((p) => {
+      const safeName = sanitizeIdentifier(p.name);
+      return `if (!${safeName}) { console.error("Missing required argument: ${escapeForTemplate(p.name)}"); process.exit(1); }`;
+    })
+    .join("\n      ");
+
+  const pathParamObj = pathParams.length > 0
+    ? `{ ${pathParams.map((p) => {
+        const safeName = sanitizeIdentifier(p.name);
+        return safeName === p.name ? safeName : `${JSON.stringify(p.name)}: ${safeName}`;
+      }).join(", ")} }`
+    : "{}";
+
+  const queryParamObj = queryParams.length > 0
+    ? `{ ${queryParams.map((p) => {
+        const safeKey = JSON.stringify(p.name);
+        return `...(flags[${safeKey}] ? { ${safeKey}: flags[${safeKey}] as string } : {})`;
+      }).join(", ")} }`
+    : "{}";
+
+  const hasBody = cmd.method === "POST" || cmd.method === "PUT" || cmd.method === "PATCH";
+  const bodyHandling = hasBody
+    ? `
+      let body: unknown = undefined;
+      if (flags.data) {
+        try {
+          body = flags.data === "-"
+            ? JSON.parse(await Bun.stdin.text())
+            : JSON.parse(flags.data as string);
+        } catch {
+          console.error("Error: Invalid JSON in --data");
+          process.exit(1);
+        }
+      } else if (flags.file) {
+        const filePath = flags.file as string;
+        if (!filePath.endsWith('.json')) {
+          console.error("Error: --file only accepts .json files");
+          process.exit(1);
+        }
+        try {
+          body = JSON.parse(await Bun.file(filePath).text());
+        } catch {
+          console.error("Error: Invalid JSON in file: " + filePath);
+          process.exit(1);
+        }
+      }`
+    : "";
+
+  const requestBody = hasBody ? ", body" : "";
+
+  const safeCmdName = escapeForTemplate(cmd.name);
+  const safeModelName = escapeForTemplate(model.name);
+  const safeCmdDescription = escapeForTemplate(cmd.description);
+
+  return `    if (subcmd === ${JSON.stringify(cmd.name)}) {
+      if (flags.help) {
+        console.log(\`${safeModelName} ${safeCmdName}${pathParams.map((p) => ` <${escapeForTemplate(p.name)}>`).join("")}
+
+${safeCmdDescription}
+${pathParams.length > 0 ? `
+Arguments:
+${pathParams.map((p) => `  ${escapeForTemplate(p.name).padEnd(15)} ${escapeForTemplate(p.type)} ${p.required ? "(required)" : "(optional)"}  ${escapeForTemplate(p.description)}`).join("\n")}` : ""}
+${queryParams.length > 0 || hasBody ? `
+Options:
+${queryParams.map((p) => `  --${escapeForTemplate(p.name).padEnd(13)} ${escapeForTemplate(p.type)}  ${escapeForTemplate(p.description)}`).join("\n")}${hasBody ? `
+  --data          string  JSON request body
+  --file          string  Path to JSON file for request body` : ""}` : ""}\`);
+        return;
+      }
+      ${pathParamExtract}
+      ${pathParamCheck}${bodyHandling}
+      const result = await http.request(${JSON.stringify(cmd.method)}, ${JSON.stringify(cmd.path)}, { pathParams: ${pathParamObj}, queryParams: ${queryParamObj}${requestBody} });
+      output(result.data, outputFormat);
+      return;
+    }`;
+}
