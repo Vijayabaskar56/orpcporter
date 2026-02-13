@@ -133,6 +133,15 @@ openapi-2-cli/
 │       └── output.ts     # Output formatting
 ```
 
+## Roadmap
+
+- [ ] **Auto-generate Claude Code skills** - Generate a skill file alongside each CLI so agents can discover and use commands with proper context
+- [ ] **Optimize binary size** - Reduce compiled CLI size through tree-shaking, minification, and removing unused runtime code
+- [ ] **Better AI agent integration** - First-class support for Claude Code, including MCP server generation and tool definitions
+- [ ] **Authentication presets** - Built-in support for common auth patterns (OAuth2, API keys, JWT)
+- [ ] **Interactive mode** - REPL-style interface for exploring APIs
+- [ ] **Response caching** - Cache responses for read operations to reduce API calls
+
 ## Requirements
 
 - [Bun](https://bun.sh) v1.0 or later
