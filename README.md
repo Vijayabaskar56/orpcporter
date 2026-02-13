@@ -1,6 +1,29 @@
 # openapi-2-cli
 
+> Vibe coded with Claude
+
 A CLI generator that creates native command-line interfaces from OpenAPI specifications. Extract specs from documentation pages and compile them into standalone binaries with man pages.
+
+## The Problem
+
+AI agents like Claude can interact with terminal commands far more easily than web interfaces. Browser automation is slow, brittle, and extremely token-hungry - every page load, click, and form fill burns through context.
+
+But most tools today are web-first. They have beautiful dashboards, but no CLI.
+
+**The solution:** If a tool has OpenAPI/Swagger documentation (and many do), we can automatically generate a CLI from it. Now your AI agent can interact with that tool through simple terminal commands instead of wrestling with browser automation.
+
+```
+# Instead of this (browser automation nightmare):
+agent.click("Login button")
+agent.fill("email", "user@example.com")
+agent.wait_for_page_load()
+agent.click("Dashboard")
+agent.find_element(".user-list")...
+
+# You get this (clean CLI):
+./mytool users list
+./mytool users get 123
+```
 
 ## Features
 
