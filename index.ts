@@ -4,6 +4,7 @@ import { parseOpenAPI } from "./src/generator/parser";
 import { generateCLISource } from "./src/generator/template";
 import { generateManPage } from "./src/generator/man-page";
 import { compileCLI } from "./src/generator/compiler";
+import { validateUrlSafety, validateServerUrls } from "./src/security";
 import type { FetchResult } from "./src/types";
 import { existsSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -26,7 +27,7 @@ async function fetchUrl(url: string): Promise<FetchResult> {
   return { content, contentType, url };
 }
 
-async function getSpec(source: string): Promise<object> {
+async function getSpec(source: string, allowPrivate = false): Promise<object> {
   // Check if source is a file
   if (existsSync(source)) {
     const content = await Bun.file(source).text();
@@ -40,6 +41,9 @@ async function getSpec(source: string): Promise<object> {
   } catch {
     throw new Error(`Invalid URL or file path: ${source}`);
   }
+
+  // SSRF check: block private IPs unless --allow-private
+  validateUrlSafety(source, allowPrivate);
 
   if (parsedUrl.protocol === "http:") {
     console.error("Warning: Fetching spec over insecure HTTP connection. Use HTTPS for production specs.");
@@ -85,6 +89,7 @@ async function handleGenerate(args: string[]) {
   let source: string | undefined;
   let name: string | undefined;
   let output = ".";
+  let allowPrivate = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -92,13 +97,15 @@ async function handleGenerate(args: string[]) {
       name = args[++i]!;
     } else if (arg === "--output" && args[i + 1]) {
       output = args[++i]!;
+    } else if (arg === "--allow-private") {
+      allowPrivate = true;
     } else if (arg && !arg.startsWith("--")) {
       source = arg;
     }
   }
 
   if (!source) {
-    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--force]");
+    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--force] [--allow-private]");
     process.exit(1);
   }
 
@@ -116,10 +123,15 @@ async function handleGenerate(args: string[]) {
 
   try {
     console.log("Fetching OpenAPI spec...");
-    const spec = await getSpec(source);
+    const spec = await getSpec(source, allowPrivate);
 
     console.log("Parsing spec...");
     const model = parseOpenAPI(spec as any);
+
+    // Validate server URLs against private IPs (SEC-02)
+    if ((spec as any).servers) {
+      validateServerUrls((spec as any).servers, allowPrivate);
+    }
 
     // Use provided name or derive from spec
     const cliName = name || model.name;
@@ -190,6 +202,7 @@ Generate Options:
   --name <name>              CLI name (default: derived from spec title)
   --output <dir>             Output directory (default: current directory)
   --force                    Overwrite existing files
+  --allow-private            Allow fetching from private/internal IPs
 
 Examples:
   orpcport extract https://example.com/api/docs
