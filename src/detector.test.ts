@@ -139,6 +139,42 @@ describe("detectFormat", () => {
     ).not.toBe("direct-yaml");
   });
 
+  // YAML content sniffing (no extension or content-type)
+  test("detects direct-yaml via content sniffing for openapi: at start", () => {
+    expect(
+      detectFormat(
+        makeFetchResult({
+          content: "openapi: '3.0.0'\ninfo:\n  title: Test\n  version: '1.0'\npaths: {}",
+          contentType: "text/plain",
+          url: "https://example.com/api/spec",
+        })
+      )
+    ).toBe("direct-yaml");
+  });
+
+  test("detects direct-yaml via content sniffing for swagger: at start", () => {
+    expect(
+      detectFormat(
+        makeFetchResult({
+          content: "swagger: '2.0'\ninfo:\n  title: Test\n  version: '1.0'\npaths: {}",
+          contentType: "text/plain",
+          url: "https://example.com/api/spec",
+        })
+      )
+    ).toBe("direct-yaml");
+  });
+
+  test("content sniffing does not trigger for JSON content with openapi:", () => {
+    expect(
+      detectFormat(
+        makeFetchResult({
+          content: '{"openapi":"3.0.0","info":{"title":"Test"}}',
+          contentType: "text/plain",
+        })
+      )
+    ).toBe("direct-json");
+  });
+
   // scalar detection
   test("detects scalar with var configuration", () => {
     expect(

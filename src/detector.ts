@@ -33,6 +33,15 @@ export function detectFormat(result: FetchResult): DocFormat {
     }
   }
 
+  // Content sniffing for YAML — only if not already detected as JSON
+  // Check if content starts with common YAML OpenAPI indicators (not inside braces)
+  if (!content.trimStart().startsWith("{")) {
+    const firstLines = content.slice(0, 500);
+    if (/^openapi\s*:/m.test(firstLines) || /^swagger\s*:/m.test(firstLines)) {
+      return "direct-yaml";
+    }
+  }
+
   // Check for Scalar - look for configuration variable or scalar indicators
   if (
     content.includes("var configuration") ||

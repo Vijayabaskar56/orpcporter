@@ -31,6 +31,14 @@ async function getSpec(source: string, allowPrivate = false): Promise<object> {
   // Check if source is a file
   if (existsSync(source)) {
     const content = await Bun.file(source).text();
+    if (source.endsWith(".yaml") || source.endsWith(".yml")) {
+      const { parse: parseYAML } = await import("yaml");
+      const parsed = parseYAML(content);
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("YAML file does not contain a valid OpenAPI spec");
+      }
+      return parsed;
+    }
     return JSON.parse(content);
   }
 
