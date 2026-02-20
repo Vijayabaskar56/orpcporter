@@ -1,3 +1,4 @@
+import { parse as parseYAML } from "yaml";
 import type { DocFormat, FetchResult, ExtractResult, OpenAPISpec } from "./types";
 
 function isValidOpenAPISpec(obj: unknown): obj is OpenAPISpec {
@@ -59,17 +60,28 @@ export function extractDirectJson(content: string): ExtractResult {
 }
 
 export function extractDirectYaml(content: string): ExtractResult {
-  // Simple YAML to JSON conversion for common OpenAPI patterns
-  // For full YAML support, you'd want to add a YAML parser dependency
   try {
     // Check if it's actually JSON (some servers return JSON with yaml content-type)
     if (content.trim().startsWith("{")) {
       return extractDirectJson(content);
     }
 
+    const parsed = parseYAML(content);
+
+    // Verify we got an object with OpenAPI markers
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (parsed.openapi || parsed.swagger) {
+        return { success: true, spec: parsed };
+      }
+      return {
+        success: false,
+        error: "Parsed YAML is not a valid OpenAPI spec (missing openapi or swagger field)",
+      };
+    }
+
     return {
       success: false,
-      error: "YAML parsing not implemented. Please provide a JSON spec URL or install a YAML parser.",
+      error: "Parsed YAML is not a valid OpenAPI spec (not an object)",
     };
   } catch (e) {
     return { success: false, error: `Failed to parse YAML: ${e}` };
