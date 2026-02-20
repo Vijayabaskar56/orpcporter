@@ -23,15 +23,17 @@ export class OutputFormatter {
 
   private formatTable(data: Record<string, unknown>[]): string {
     if (data.length === 0) return "";
-    const keys = Object.keys(data[0]);
+    const firstRow = data[0];
+    if (!firstRow) return "";
+    const keys = Object.keys(firstRow);
     const widths = keys.map((key) => {
       const maxDataWidth = Math.max(...data.map((row) => String(row[key] ?? "").length));
       return Math.max(key.length, maxDataWidth);
     });
-    const header = keys.map((key, i) => key.padEnd(widths[i])).join("  ");
+    const header = keys.map((key, i) => key.padEnd(widths[i] ?? 0)).join("  ");
     const separator = widths.map((w) => "-".repeat(w)).join("  ");
     const rows = data.map((row) =>
-      keys.map((key, i) => String(row[key] ?? "").padEnd(widths[i])).join("  ")
+      keys.map((key, i) => String(row[key] ?? "").padEnd(widths[i] ?? 0)).join("  ")
     );
     return [header, separator, ...rows].join("\n");
   }

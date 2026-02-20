@@ -25,8 +25,8 @@ test("ResourceMapper generates command tree", () => {
   const mapper = new ResourceMapper(model);
   const tree = mapper.getCommandTree();
   expect(tree.children).toHaveProperty("users");
-  expect(tree.children.users.children).toHaveProperty("list");
-  expect(tree.children.users.children).toHaveProperty("get");
+  expect(tree.children.users!.children).toHaveProperty("list");
+  expect(tree.children.users!.children).toHaveProperty("get");
 });
 
 test("ResourceMapper generates help text", () => {

@@ -11,7 +11,7 @@ import { join } from "path";
 async function fetchUrl(url: string): Promise<FetchResult> {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "openapi-cli/1.0",
+      "User-Agent": "orpcport/1.0",
       Accept: "application/json, text/html, */*",
     },
   });
@@ -67,7 +67,7 @@ async function handleExtract(args: string[]) {
   const url = args[0];
 
   if (!url) {
-    console.error("Usage: orpc extract <url>");
+    console.error("Usage: orpcport extract <url>");
     process.exit(1);
   }
 
@@ -89,16 +89,16 @@ async function handleGenerate(args: string[]) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--name" && args[i + 1]) {
-      name = args[++i];
+      name = args[++i]!;
     } else if (arg === "--output" && args[i + 1]) {
-      output = args[++i];
-    } else if (!arg.startsWith("--")) {
+      output = args[++i]!;
+    } else if (arg && !arg.startsWith("--")) {
       source = arg;
     }
   }
 
   if (!source) {
-    console.error("Usage: orpc generate <url-or-file> [--name <name>] [--output <dir>] [--force]");
+    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--force]");
     process.exit(1);
   }
 
@@ -178,9 +178,9 @@ async function main() {
 
   if (!command || command === "--help" || command === "-h") {
     console.log(`
-orpc - OpenAPI CLI Generator
+orpcport - OpenAPI CLI Generator
 
-Usage: orpc <command> [options]
+Usage: orpcport <command> [options]
 
 Commands:
   extract <url>              Extract OpenAPI spec from documentation URL
@@ -192,9 +192,9 @@ Generate Options:
   --force                    Overwrite existing files
 
 Examples:
-  orpc extract https://example.com/api/docs
-  orpc generate https://example.com/api/docs --name myapi --output ./bin/
-  orpc generate ./openapi.json --name myapi
+  orpcport extract https://example.com/api/docs
+  orpcport generate https://example.com/api/docs --name myapi --output ./bin/
+  orpcport generate ./openapi.json --name myapi
 `);
     process.exit(command ? 0 : 1);
   }
@@ -205,7 +205,7 @@ Examples:
     await handleGenerate(cmdArgs);
   } else {
     console.error(`Unknown command: ${command}`);
-    console.error("Run 'orpc --help' for usage.");
+    console.error("Run 'orpcport --help' for usage.");
     process.exit(1);
   }
 }

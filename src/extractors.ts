@@ -104,6 +104,7 @@ export function extractScalar(content: string): ExtractResult {
   const dataSpecMatch = content.match(/data-spec=["']([^"']+)["']/);
   if (dataSpecMatch) {
     try {
+      if (!dataSpecMatch[1]) throw new Error("No capture group");
       const decoded = dataSpecMatch[1]
         .replace(/&quot;/g, '"')
         .replace(/&amp;/g, "&")
@@ -138,6 +139,7 @@ export function extractScalar(content: string): ExtractResult {
   const scriptMatch = content.match(/<script[^>]*type=["']application\/json["'][^>]*>([^<]+)<\/script>/i);
   if (scriptMatch) {
     try {
+      if (!scriptMatch[1]) throw new Error("No capture group");
       const spec = JSON.parse(scriptMatch[1]);
       if (isValidOpenAPISpec(spec)) {
         return { success: true, spec };
@@ -209,6 +211,7 @@ export function extractRedoc(content: string): ExtractResult {
   const scriptMatches = content.matchAll(/<script[^>]*type=["']application\/json["'][^>]*>([^<]+)<\/script>/gi);
   for (const match of scriptMatches) {
     try {
+      if (!match[1]) continue;
       const spec = JSON.parse(match[1]);
       if (isValidOpenAPISpec(spec)) {
         return { success: true, spec };

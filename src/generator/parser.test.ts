@@ -36,17 +36,17 @@ test("parseOpenAPI extracts basic info", () => {
 test("parseOpenAPI extracts resources from paths", () => {
   const model = parseOpenAPI(minimalSpec);
   expect(model.resources).toHaveLength(1);
-  expect(model.resources[0].name).toBe("users");
-  expect(model.resources[0].commands).toHaveLength(2);
+  expect(model.resources[0]!.name).toBe("users");
+  expect(model.resources[0]!.commands).toHaveLength(2);
 });
 
 test("parseOpenAPI extracts command parameters", () => {
   const model = parseOpenAPI(minimalSpec);
-  const getUserCmd = model.resources[0].commands.find(c => c.name === "get");
+  const getUserCmd = model.resources[0]!.commands.find(c => c.name === "get");
   expect(getUserCmd).toBeDefined();
   expect(getUserCmd!.params).toHaveLength(1);
-  expect(getUserCmd!.params[0].name).toBe("id");
-  expect(getUserCmd!.params[0].location).toBe("path");
+  expect(getUserCmd!.params[0]!.name).toBe("id");
+  expect(getUserCmd!.params[0]!.location).toBe("path");
 });
 
 test("parseOpenAPI rejects null input", () => {
