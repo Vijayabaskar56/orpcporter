@@ -1,5 +1,5 @@
 {
-  "name": "openapi-2-cli",
+  "name": "orpcport",
   "version": "1.0.0",
   "description": "CLI generator that creates native command-line interfaces from OpenAPI specifications",
   "module": "index.ts",
@@ -8,7 +8,7 @@
     "start": "bun run index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build index.ts --compile --outfile orpc"
+    "build": "bun build index.ts --compile --outfile orpcport"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -25,5 +25,8 @@
     "rest"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "yaml": "^2.8.2"
+  }
 }
