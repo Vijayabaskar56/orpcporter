@@ -81,11 +81,11 @@ test("generates CLI from remote URL with complex spec", async () => {
   const remoteDir = `${TEST_DIR}/remote`;
   mkdirSync(remoteDir, { recursive: true });
 
-  // Generate CLI from real remote spec
+  // Generate CLI from real remote spec (Swagger's official petstore demo)
   const proc = Bun.spawn([
     "bun", "run", "index.ts", "generate",
-    "https://larabook.in/base/api/auth/reference",
-    "--name", "better-auth-test",
+    "https://petstore3.swagger.io/api/v3/openapi.json",
+    "--name", "petstore-test",
     "--output", remoteDir,
     "--force"
   ], { stdout: "pipe", stderr: "pipe", cwd: "/Users/vijayabaskar/work/orpc-cli" });
@@ -93,13 +93,13 @@ test("generates CLI from remote URL with complex spec", async () => {
   await proc.exited;
 
   // Check binary exists
-  expect(existsSync(`${remoteDir}/better-auth-test`)).toBe(true);
-  expect(existsSync(`${remoteDir}/better-auth-test.1`)).toBe(true);
+  expect(existsSync(`${remoteDir}/petstore-test`)).toBe(true);
+  expect(existsSync(`${remoteDir}/petstore-test.1`)).toBe(true);
 
   // Test help works
-  const helpProc = Bun.spawn([`${remoteDir}/better-auth-test`, "--help"], { stdout: "pipe" });
+  const helpProc = Bun.spawn([`${remoteDir}/petstore-test`, "--help"], { stdout: "pipe" });
   const helpOutput = await new Response(helpProc.stdout).text();
 
-  expect(helpOutput).toContain("better-auth-test");
-  expect(helpOutput).toContain("sign-in");
+  expect(helpOutput).toContain("petstore-test");
+  expect(helpOutput).toContain("pet");
 }, 60000);
