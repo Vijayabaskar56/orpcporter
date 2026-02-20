@@ -33,7 +33,7 @@ export class ConfigManager {
           }
         }
         return data;
-      } catch { return Object.create(null); }
+      } catch (e) { console.error("Failed to parse config file " + this.configPath + ":", e); return Object.create(null); }
     }
     return Object.create(null);
   }

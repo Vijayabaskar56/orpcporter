@@ -11,8 +11,8 @@ export function detectFormat(result: FetchResult): DocFormat {
       if (parsed.openapi || parsed.swagger) {
         return "direct-json";
       }
-    } catch {
-      // Not valid JSON
+    } catch (e) {
+      console.error("[debug] Format detection: JSON parse failed:", e);
     }
   }
 

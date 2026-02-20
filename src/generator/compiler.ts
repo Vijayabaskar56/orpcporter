@@ -27,7 +27,7 @@ export async function compileCLI(source: string, outputPath: string): Promise<vo
     }
     chmodSync(outputPath, 0o755);
   } finally {
-    try { unlinkSync(tempFile); } catch { /* ignore */ }
-    try { rmdirSync(tempDir); } catch { /* ignore */ }
+    try { unlinkSync(tempFile); } catch (e) { console.error("Cleanup: failed to remove temp file " + tempFile + ":", e); }
+    try { rmdirSync(tempDir); } catch (e) { console.error("Cleanup: failed to remove temp dir " + tempDir + ":", e); }
   }
 }
