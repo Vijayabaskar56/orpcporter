@@ -4,8 +4,13 @@ export function detectFormat(result: FetchResult): DocFormat {
   const { content, contentType, url } = result;
   const lowerContent = content.toLowerCase();
 
-  // Check for direct JSON
-  if (contentType.includes("application/json")) {
+  // Check for direct JSON — match application/json content-type, .json URL extension,
+  // or content that starts with '{' (common for raw GitHub URLs serving text/plain)
+  if (
+    contentType.includes("application/json") ||
+    url.endsWith(".json") ||
+    content.trimStart().startsWith("{")
+  ) {
     try {
       const parsed = JSON.parse(content);
       if (parsed.openapi || parsed.swagger) {

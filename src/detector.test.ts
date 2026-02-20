@@ -35,6 +35,30 @@ describe("detectFormat", () => {
     ).toBe("direct-json");
   });
 
+  test("detects direct-json for .json URL with text/plain content-type", () => {
+    expect(
+      detectFormat(
+        makeFetchResult({
+          content: '{"openapi":"3.0.0","info":{"title":"Test"}}',
+          contentType: "text/plain",
+          url: "https://raw.githubusercontent.com/example/openapi/spec3.json",
+        })
+      )
+    ).toBe("direct-json");
+  });
+
+  test("detects direct-json when content starts with { regardless of content-type", () => {
+    expect(
+      detectFormat(
+        makeFetchResult({
+          content: '{"openapi":"3.1.0","info":{"title":"Test"},"paths":{}}',
+          contentType: "text/plain",
+          url: "https://example.com/api/spec",
+        })
+      )
+    ).toBe("direct-json");
+  });
+
   test("does not detect direct-json with invalid JSON", () => {
     expect(
       detectFormat(
