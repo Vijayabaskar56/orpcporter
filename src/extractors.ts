@@ -94,8 +94,8 @@ export function extractScalar(content: string): ExtractResult {
         if (parsed.spec && isValidOpenAPISpec(parsed.spec)) {
           return { success: true, spec: parsed.spec };
         }
-      } catch {
-        // Continue to other patterns
+      } catch (e) {
+        console.error("[debug] Scalar config pattern: parse failed:", e);
       }
     }
   }
@@ -114,8 +114,8 @@ export function extractScalar(content: string): ExtractResult {
       if (isValidOpenAPISpec(spec)) {
         return { success: true, spec };
       }
-    } catch {
-      // Continue to other patterns
+    } catch (e) {
+      console.error("[debug] Scalar data-spec: parse failed:", e);
     }
   }
 
@@ -129,8 +129,8 @@ export function extractScalar(content: string): ExtractResult {
         if (isValidOpenAPISpec(spec)) {
           return { success: true, spec };
         }
-      } catch {
-        // Continue
+      } catch (e) {
+        console.error("[debug] Scalar embedded openapi: parse failed:", e);
       }
     }
   }
@@ -144,8 +144,8 @@ export function extractScalar(content: string): ExtractResult {
       if (isValidOpenAPISpec(spec)) {
         return { success: true, spec };
       }
-    } catch {
-      // Continue
+    } catch (e) {
+      console.error("[debug] Scalar script tag: parse failed:", e);
     }
   }
 
@@ -172,8 +172,8 @@ export function extractSwaggerUI(content: string): ExtractResult {
         if (isValidOpenAPISpec(spec)) {
           return { success: true, spec };
         }
-      } catch {
-        // Continue
+      } catch (e) {
+        console.error("[debug] Swagger UI spec: parse failed:", e);
       }
     }
   }
@@ -188,8 +188,8 @@ export function extractSwaggerUI(content: string): ExtractResult {
         if (isValidOpenAPISpec(spec)) {
           return { success: true, spec };
         }
-      } catch {
-        // Continue
+      } catch (e) {
+        console.error("[debug] Swagger UI init: parse failed:", e);
       }
     }
   }
@@ -216,8 +216,8 @@ export function extractRedoc(content: string): ExtractResult {
       if (isValidOpenAPISpec(spec)) {
         return { success: true, spec };
       }
-    } catch {
-      // Continue to next match
+    } catch (e) {
+      console.error("[debug] Redoc script tag: parse failed:", e);
     }
   }
 
@@ -231,8 +231,8 @@ export function extractRedoc(content: string): ExtractResult {
         if (state.spec && isValidOpenAPISpec(state.spec)) {
           return { success: true, spec: state.spec };
         }
-      } catch {
-        // Continue
+      } catch (e) {
+        console.error("[debug] Redoc state: parse failed:", e);
       }
     }
   }
