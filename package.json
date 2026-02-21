@@ -4,11 +4,24 @@
   "description": "CLI generator that creates native command-line interfaces from OpenAPI specifications",
   "module": "index.ts",
   "type": "module",
+  "bin": {
+    "orpcport": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
   "scripts": {
     "start": "bun run index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build index.ts --compile --outfile orpcport"
+    "build": "bun build index.ts --compile --minify --outfile orpcport"
   },
   "devDependencies": {
     "@types/bun": "latest"

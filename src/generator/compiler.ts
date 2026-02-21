@@ -17,7 +17,7 @@ export async function compileCLI(source: string, outputPath: string): Promise<vo
     writeFileSync(tempFile, source);
     chmodSync(tempFile, 0o600);
 
-    const proc = Bun.spawn(["bun", "build", "--compile", "--outfile", outputPath, "--", tempFile], {
+    const proc = Bun.spawn(["bun", "build", "--compile", "--minify", "--outfile", outputPath, "--", tempFile], {
       stdout: "pipe", stderr: "pipe",
     });
     const exitCode = await proc.exited;

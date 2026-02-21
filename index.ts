@@ -1,12 +1,14 @@
+#!/usr/bin/env bun
 import { detectFormat } from "./src/detector";
 import { extract } from "./src/extractors";
 import { parseOpenAPI } from "./src/generator/parser";
 import { generateCLISource } from "./src/generator/template";
 import { generateManPage } from "./src/generator/man-page";
+import { generateSkillFile } from "./src/generator/skill";
 import { compileCLI } from "./src/generator/compiler";
 import { validateUrlSafety, validateServerUrls } from "./src/security";
 import type { FetchResult } from "./src/types";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync, chmodSync } from "fs";
 import { join } from "path";
 
 async function fetchUrl(url: string): Promise<FetchResult> {
@@ -98,6 +100,7 @@ async function handleGenerate(args: string[]) {
   let name: string | undefined;
   let output = ".";
   let allowPrivate = false;
+  let mode: "package" | "binary" = "binary";
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -105,6 +108,13 @@ async function handleGenerate(args: string[]) {
       name = args[++i]!;
     } else if (arg === "--output" && args[i + 1]) {
       output = args[++i]!;
+    } else if (arg === "--mode" && args[i + 1]) {
+      const modeArg = args[++i]!;
+      if (modeArg !== "package" && modeArg !== "binary") {
+        console.error("Error: --mode must be 'package' or 'binary'");
+        process.exit(1);
+      }
+      mode = modeArg;
     } else if (arg === "--allow-private") {
       allowPrivate = true;
     } else if (arg && !arg.startsWith("--")) {
@@ -113,7 +123,7 @@ async function handleGenerate(args: string[]) {
   }
 
   if (!source) {
-    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--force] [--allow-private]");
+    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--mode <package|binary>] [--force] [--allow-private]");
     process.exit(1);
   }
 
@@ -151,32 +161,86 @@ async function handleGenerate(args: string[]) {
     console.log("Generating man page...");
     const manPage = generateManPage(model);
 
-    console.log("Compiling binary...");
-    const binaryPath = join(output, cliName);
+    console.log("Generating skill file...");
+    const skillContent = generateSkillFile(model);
 
-    // Check if binary already exists and --force not provided
-    if (existsSync(binaryPath)) {
-      const forceFlag = args.includes("--force");
-      if (!forceFlag) {
-        console.error(`Error: ${binaryPath} already exists. Use --force to overwrite.`);
-        process.exit(1);
-      }
-    }
-
-    await compileCLI(cliSource, binaryPath);
+    const forceFlag = args.includes("--force");
 
     // Write man page
     const manPath = join(output, `${cliName}.1`);
-    if (existsSync(manPath) && !args.includes("--force")) {
+    if (existsSync(manPath) && !forceFlag) {
       console.error(`Error: ${manPath} already exists. Use --force to overwrite.`);
       process.exit(1);
     }
     writeFileSync(manPath, manPage);
 
-    console.log(`
-Generated successfully:
-  Binary:   ${binaryPath}
-  Man page: ${manPath}
+    // Write skill file
+    const skillPath = join(output, `${cliName}-skill.md`);
+    if (existsSync(skillPath) && !forceFlag) {
+      console.error(`Error: ${skillPath} already exists. Use --force to overwrite.`);
+      process.exit(1);
+    }
+    writeFileSync(skillPath, skillContent);
+
+    if (mode === "package") {
+      // Package mode: write .ts source directly (no compilation)
+      const tsPath = join(output, `${cliName}.ts`);
+      if (existsSync(tsPath) && !forceFlag) {
+        console.error(`Error: ${tsPath} already exists. Use --force to overwrite.`);
+        process.exit(1);
+      }
+      writeFileSync(tsPath, cliSource);
+      chmodSync(tsPath, 0o755);
+
+      // Write package.json for the generated CLI
+      const pkgJsonPath = join(output, "package.json");
+      if (existsSync(pkgJsonPath) && !forceFlag) {
+        console.error(`Error: ${pkgJsonPath} already exists. Use --force to overwrite.`);
+        process.exit(1);
+      }
+      const pkg = {
+        name: cliName,
+        version: model.version,
+        description: model.description,
+        type: "module",
+        bin: { [cliName]: `./${cliName}.ts` },
+        engines: { bun: ">=1.3.0" },
+      };
+      writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+
+      console.log(`
+Generated successfully (package mode):
+  CLI:        ${tsPath}
+  Package:    ${pkgJsonPath}
+  Man page:   ${manPath}
+  Skill file: ${skillPath}
+
+To run:
+  bun ${tsPath} --help
+
+To install locally:
+  cd ${output} && bun link
+
+To use as Claude Code skill:
+  cp ${skillPath} .claude/commands/
+`);
+    } else {
+      // Binary mode: compile with minification
+      console.log("Compiling binary...");
+      const binaryPath = join(output, cliName);
+
+      if (existsSync(binaryPath) && !forceFlag) {
+        console.error(`Error: ${binaryPath} already exists. Use --force to overwrite.`);
+        process.exit(1);
+      }
+
+      await compileCLI(cliSource, binaryPath);
+
+      console.log(`
+Generated successfully (binary mode):
+  Binary:     ${binaryPath}
+  Man page:   ${manPath}
+  Skill file: ${skillPath}
 
 To install the man page:
   sudo cp ${manPath} /usr/local/share/man/man1/
@@ -184,7 +248,11 @@ To install the man page:
 To use:
   ${binaryPath} --help
   ${binaryPath} config set token <your-token>
+
+To use as Claude Code skill:
+  cp ${skillPath} .claude/commands/
 `);
+    }
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
@@ -207,6 +275,7 @@ Commands:
   generate <url-or-file>     Generate CLI from OpenAPI spec
 
 Generate Options:
+  --mode <package|binary>    Output mode (default: binary)
   --name <name>              CLI name (default: derived from spec title)
   --output <dir>             Output directory (default: current directory)
   --force                    Overwrite existing files
