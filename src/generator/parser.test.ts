@@ -72,3 +72,53 @@ test("parseOpenAPI rejects spec with missing info.title", () => {
 test("parseOpenAPI rejects spec with missing info.version", () => {
   expect(() => parseOpenAPI({ info: { title: "Test" }, paths: {} })).toThrow("info.version is required");
 });
+
+test("parseOpenAPI extracts OAuth2 security scheme", () => {
+  const spec = {
+    openapi: "3.1.0",
+    info: { title: "OAuth API", version: "1.0.0" },
+    paths: { "/test": { get: { responses: { "200": { description: "OK" } } } } },
+    components: {
+      securitySchemes: {
+        oauth2_scheme: {
+          type: "oauth2",
+          flows: {
+            authorizationCode: {
+              authorizationUrl: "https://auth.example.com/authorize",
+              tokenUrl: "https://auth.example.com/token",
+              scopes: { read: "Read access", write: "Write access" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const model = parseOpenAPI(spec);
+  expect(model.securitySchemes).toHaveLength(1);
+  expect(model.securitySchemes[0].type).toBe("oauth2");
+  expect(model.securitySchemes[0].authorizationUrl).toBe("https://auth.example.com/authorize");
+  expect(model.securitySchemes[0].tokenUrl).toBe("https://auth.example.com/token");
+  expect(model.securitySchemes[0].scopes).toEqual(["read", "write"]);
+});
+
+test("parseOpenAPI extracts apiKey security scheme", () => {
+  const spec = {
+    openapi: "3.1.0",
+    info: { title: "API Key API", version: "1.0.0" },
+    paths: { "/test": { get: { responses: { "200": { description: "OK" } } } } },
+    components: {
+      securitySchemes: {
+        api_key: {
+          type: "apiKey",
+          in: "header",
+          name: "X-API-Key",
+        },
+      },
+    },
+  };
+  const model = parseOpenAPI(spec);
+  expect(model.securitySchemes).toHaveLength(1);
+  expect(model.securitySchemes[0].type).toBe("apiKey");
+  expect(model.securitySchemes[0].location).toBe("header");
+  expect(model.securitySchemes[0].paramName).toBe("X-API-Key");
+});

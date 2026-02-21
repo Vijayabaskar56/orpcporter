@@ -36,9 +36,13 @@ export interface CLIModel {
 
 export interface SecurityScheme {
   name: string;
-  type: "bearer" | "apiKey" | "basic";
+  type: "bearer" | "apiKey" | "basic" | "oauth2";
   location?: "header" | "cookie" | "query";
   paramName?: string;
+  // OAuth2 fields
+  authorizationUrl?: string;
+  tokenUrl?: string;
+  scopes?: string[];
 }
 
 export interface GeneratorOptions {

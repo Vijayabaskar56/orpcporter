@@ -297,6 +297,105 @@ describe("no auth", () => {
   });
 });
 
+// ============ OAuth2 auth ============
+
+describe("oauth2 auth", () => {
+  const oauth2Scheme: SecurityScheme = {
+    name: "oauth2",
+    type: "oauth2",
+    authorizationUrl: "https://auth.example.com/authorize",
+    tokenUrl: "https://auth.example.com/token",
+    scopes: ["read", "write"],
+  };
+
+  test("generates oauth login command", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain('"oauth"');
+    expect(source).toContain('"login"');
+  });
+
+  test("generates oauth logout command", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain('"logout"');
+    expect(source).toContain("oauth-access-token");
+    expect(source).toContain("oauth-refresh-token");
+    expect(source).toContain("oauth-token-expiry");
+  });
+
+  test("generates oauth status command", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain('"status"');
+    expect(source).toContain("Status: Authenticated");
+  });
+
+  test("uses Bun.serve for callback server", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain("Bun.serve");
+    expect(source).toContain("/callback");
+  });
+
+  test("includes token refresh logic", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain('grant_type: "refresh_token"');
+  });
+
+  test("includes authorization URL and token URL", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain("https://auth.example.com/authorize");
+    expect(source).toContain("https://auth.example.com/token");
+  });
+
+  test("includes scopes in authorization request", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain("read write");
+  });
+
+  test("reads stored token from config", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain('config.get("oauth-access-token")');
+  });
+
+  test("help text shows oauth command", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [oauth2Scheme],
+    }));
+    expect(source).toContain("oauth");
+    expect(source).toContain("OAuth2 authentication");
+  });
+
+  test("no oauth commands when scheme is not oauth2", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [{ name: "bearer", type: "bearer" }],
+    }));
+    expect(source).not.toContain("oauth login");
+    expect(source).not.toContain("oauth logout");
+    expect(source).not.toContain("oauth status");
+  });
+
+  test("no oauth commands when scheme is apiKey", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [{ name: "api_key", type: "apiKey", location: "header", paramName: "X-API-Key" }],
+    }));
+    expect(source).not.toContain("oauth login");
+  });
+});
+
 // ============ Env prefix derivation ============
 
 describe("env prefix", () => {

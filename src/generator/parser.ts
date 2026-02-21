@@ -33,6 +33,25 @@ interface OpenAPISecurityScheme {
   scheme?: string;
   in?: string;
   name?: string;
+  flows?: {
+    authorizationCode?: {
+      authorizationUrl?: string;
+      tokenUrl?: string;
+      scopes?: Record<string, string>;
+    };
+    implicit?: {
+      authorizationUrl?: string;
+      scopes?: Record<string, string>;
+    };
+    password?: {
+      tokenUrl?: string;
+      scopes?: Record<string, string>;
+    };
+    clientCredentials?: {
+      tokenUrl?: string;
+      scopes?: Record<string, string>;
+    };
+  };
 }
 
 const MAX_PATHS = 500;
@@ -125,7 +144,23 @@ function parseSecuritySchemes(schemes?: Record<string, OpenAPISecurityScheme>): 
     let type: SecurityScheme["type"] = "bearer";
     if (scheme.type === "apiKey") type = "apiKey";
     else if (scheme.type === "http" && scheme.scheme === "basic") type = "basic";
-    return { name, type, location: scheme.in as SecurityScheme["location"], paramName: scheme.name };
+    else if (scheme.type === "oauth2") type = "oauth2";
+
+    const result: SecurityScheme = { name, type, location: scheme.in as SecurityScheme["location"], paramName: scheme.name };
+
+    // Extract OAuth2 authorization code flow details
+    if (type === "oauth2" && scheme.flows) {
+      const flow = scheme.flows.authorizationCode;
+      if (flow) {
+        result.authorizationUrl = flow.authorizationUrl;
+        result.tokenUrl = flow.tokenUrl;
+        if (flow.scopes) {
+          result.scopes = Object.keys(flow.scopes);
+        }
+      }
+    }
+
+    return result;
   });
 }
 

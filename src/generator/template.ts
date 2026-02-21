@@ -51,6 +51,51 @@ function generateAuthSetup(model: CLIModel): string {
   // Bearer Token Auth
   const token = (flags.token as string) || process.env.${envPrefix}_TOKEN || config.get("token");
   if (token) http.setHeader("Authorization", \`Bearer \${token}\`);`;
+    case 'oauth2':
+      return `
+  // OAuth2 Auth
+  const oauthToken = config.get("oauth-access-token");
+  const oauthExpiry = config.get("oauth-token-expiry");
+  if (oauthToken) {
+    // Check if token is expired and refresh if possible
+    if (oauthExpiry && Number(oauthExpiry) < Date.now()) {
+      const refreshToken = config.get("oauth-refresh-token");
+      if (refreshToken) {
+        try {
+          const tokenUrl = ${JSON.stringify(scheme.tokenUrl || '')};
+          const clientId = config.get("oauth-client-id") || "";
+          const clientSecret = config.get("oauth-client-secret") || "";
+          const refreshResp = await fetch(tokenUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "refresh_token",
+              refresh_token: refreshToken,
+              client_id: clientId,
+              ...(clientSecret ? { client_secret: clientSecret } : {}),
+            }).toString(),
+          });
+          if (refreshResp.ok) {
+            const tokens = await refreshResp.json() as Record<string, unknown>;
+            if (tokens.access_token) {
+              config.set("oauth-access-token", String(tokens.access_token));
+              if (tokens.refresh_token) config.set("oauth-refresh-token", String(tokens.refresh_token));
+              if (tokens.expires_in) config.set("oauth-token-expiry", String(Date.now() + Number(tokens.expires_in) * 1000));
+              http.setHeader("Authorization", \`Bearer \${tokens.access_token}\`);
+            }
+          } else {
+            console.error("Warning: Failed to refresh OAuth2 token. Run '\${CLI_NAME} oauth login' to re-authenticate.");
+          }
+        } catch {
+          console.error("Warning: Token refresh failed. Run '\${CLI_NAME} oauth login' to re-authenticate.");
+        }
+      } else {
+        console.error("Warning: OAuth2 token expired and no refresh token available. Run '\${CLI_NAME} oauth login'.");
+      }
+    } else {
+      http.setHeader("Authorization", \`Bearer \${oauthToken}\`);
+    }
+  }`;
     default:
       return '';
   }
@@ -70,9 +115,155 @@ function generateAuthHelpFlags(model: CLIModel): string {
   --password      Password for basic auth`;
     case 'bearer':
       return `  --token         API token`;
+    case 'oauth2':
+      return `  oauth           OAuth2 authentication (login/logout/status)`;
     default:
       return '';
   }
+}
+
+function generateOAuthCommands(model: CLIModel): string {
+  const scheme = model.securitySchemes[0];
+  if (!scheme || scheme.type !== 'oauth2') return '';
+
+  const authUrl = scheme.authorizationUrl || '';
+  const tokenUrl = scheme.tokenUrl || '';
+  const scopes = scheme.scopes || [];
+
+  return `
+  // OAuth2 commands
+  if (cmd === "oauth") {
+    if (subcmd === "login") {
+      const clientId = config.get("oauth-client-id");
+      if (!clientId) {
+        console.error("Error: OAuth2 client ID not configured. Run: " + CLI_NAME + " config set oauth-client-id <your-client-id>");
+        process.exit(1);
+      }
+      const clientSecret = config.get("oauth-client-secret") || "";
+      const port = 8174;
+      const redirectUri = \`http://localhost:\${port}/callback\`;
+      const state = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
+      const authParams = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        state,
+        scope: ${JSON.stringify(scopes.join(' '))},
+      });
+
+      const authorizationUrl = ${JSON.stringify(authUrl)} + "?" + authParams.toString();
+
+      console.log("Opening browser for authorization...");
+      console.log("If the browser doesn't open, visit: " + authorizationUrl);
+
+      // Open browser
+      try {
+        const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+        Bun.spawn([cmd, authorizationUrl]);
+      } catch {
+        console.log("Could not open browser automatically.");
+      }
+
+      // Start callback server
+      let resolveCallback: (code: string) => void;
+      const codePromise = new Promise<string>((resolve) => { resolveCallback = resolve; });
+
+      const server = Bun.serve({
+        port,
+        fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname === "/callback") {
+            const code = url.searchParams.get("code");
+            const returnedState = url.searchParams.get("state");
+            if (returnedState !== state) {
+              return new Response("State mismatch. Authentication failed.", { status: 400 });
+            }
+            if (!code) {
+              return new Response("No authorization code received.", { status: 400 });
+            }
+            resolveCallback!(code);
+            return new Response("<html><body><h1>Authentication successful!</h1><p>You can close this tab.</p></body></html>", {
+              headers: { "Content-Type": "text/html" },
+            });
+          }
+          return new Response("Not found", { status: 404 });
+        },
+      });
+
+      // Wait for callback with timeout
+      const timeoutMs = 120000;
+      const code = await Promise.race([
+        codePromise,
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs)),
+      ]).catch((err) => {
+        server.stop();
+        console.error("Error: OAuth2 login timed out after " + (timeoutMs / 1000) + " seconds.");
+        process.exit(1);
+      }) as string;
+
+      server.stop();
+
+      // Exchange code for tokens
+      try {
+        const tokenResp = await fetch(${JSON.stringify(tokenUrl)}, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: redirectUri,
+            client_id: clientId,
+            ...(clientSecret ? { client_secret: clientSecret } : {}),
+          }).toString(),
+        });
+
+        if (!tokenResp.ok) {
+          const errBody = await tokenResp.text();
+          console.error("Error: Token exchange failed: " + errBody);
+          process.exit(1);
+        }
+
+        const tokens = await tokenResp.json() as Record<string, unknown>;
+        config.set("oauth-access-token", String(tokens.access_token));
+        if (tokens.refresh_token) config.set("oauth-refresh-token", String(tokens.refresh_token));
+        if (tokens.expires_in) config.set("oauth-token-expiry", String(Date.now() + Number(tokens.expires_in) * 1000));
+
+        console.log("Authentication successful! Token stored in config.");
+      } catch (err) {
+        console.error("Error: Failed to exchange authorization code for tokens.");
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (subcmd === "logout") {
+      config.delete("oauth-access-token");
+      config.delete("oauth-refresh-token");
+      config.delete("oauth-token-expiry");
+      console.log("OAuth2 tokens cleared.");
+      return;
+    }
+
+    if (subcmd === "status") {
+      const token = config.get("oauth-access-token");
+      if (!token) {
+        console.log("Not authenticated. Run: " + CLI_NAME + " oauth login");
+        return;
+      }
+      const expiry = config.get("oauth-token-expiry");
+      const expiryDate = expiry ? new Date(Number(expiry)) : null;
+      const isExpired = expiryDate && expiryDate.getTime() < Date.now();
+      const hasRefresh = !!config.get("oauth-refresh-token");
+      console.log("Status: Authenticated");
+      if (expiryDate) console.log("Token expires: " + expiryDate.toISOString() + (isExpired ? " (EXPIRED)" : ""));
+      console.log("Refresh token: " + (hasRefresh ? "Available" : "Not available"));
+      return;
+    }
+
+    console.log(\`Usage: \${CLI_NAME} oauth <login|logout|status>\`);
+    return;
+  }`;
 }
 
 export function generateCLISource(model: CLIModel): string {
@@ -274,6 +465,8 @@ ${generateAuthSetup(model)}
     }
     return;
   }
+
+${generateOAuthCommands(model)}
 
 ${resourceCases}
 
