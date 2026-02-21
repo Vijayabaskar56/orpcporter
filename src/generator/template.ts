@@ -1,4 +1,4 @@
-import type { CLIModel, Command, CommandParam } from "./types";
+import type { CLIModel, Command, CommandParam, SecurityScheme } from "./types";
 
 function escapeForTemplate(s: unknown): string {
   if (s == null) return '';
@@ -16,6 +16,63 @@ function sanitizeIdentifier(name: unknown): string {
   const str = String(name);
   if (isValidIdentifier(str)) return str;
   return str.replace(/[^a-zA-Z0-9_$]/g, '_') || '_unnamed';
+}
+
+function generateAuthSetup(model: CLIModel): string {
+  const scheme = model.securitySchemes[0];
+  if (!scheme) return '';
+
+  const envPrefix = model.name.toUpperCase().replace(/-/g, "_");
+
+  switch (scheme.type) {
+    case 'apiKey': {
+      const paramName = scheme.paramName || 'X-API-Key';
+      if (scheme.location === 'query') {
+        return `
+  // API Key Auth (query parameter: ${escapeForTemplate(paramName)})
+  const apiKey = (flags["api-key"] as string) || process.env.${envPrefix}_API_KEY || config.get("api-key");
+  if (apiKey) http.setAuthQueryParam(${JSON.stringify(paramName)}, apiKey);`;
+      }
+      return `
+  // API Key Auth (header: ${escapeForTemplate(paramName)})
+  const apiKey = (flags["api-key"] as string) || process.env.${envPrefix}_API_KEY || config.get("api-key");
+  if (apiKey) http.setHeader(${JSON.stringify(paramName)}, apiKey);`;
+    }
+    case 'basic':
+      return `
+  // Basic Auth
+  const username = (flags.username as string) || process.env.${envPrefix}_USERNAME || config.get("username");
+  const password = (flags.password as string) || process.env.${envPrefix}_PASSWORD || config.get("password");
+  if (username && password) {
+    http.setHeader("Authorization", \`Basic \${btoa(\`\${username}:\${password}\`)}\`);
+  }`;
+    case 'bearer':
+      return `
+  // Bearer Token Auth
+  const token = (flags.token as string) || process.env.${envPrefix}_TOKEN || config.get("token");
+  if (token) http.setHeader("Authorization", \`Bearer \${token}\`);`;
+    default:
+      return '';
+  }
+}
+
+function generateAuthHelpFlags(model: CLIModel): string {
+  const scheme = model.securitySchemes[0];
+  if (!scheme) return '';
+
+  switch (scheme.type) {
+    case 'apiKey':
+      return scheme.location === 'query'
+        ? `  --api-key       API key (sent as query parameter)`
+        : `  --api-key       API key`;
+    case 'basic':
+      return `  --username      Username for basic auth
+  --password      Password for basic auth`;
+    case 'bearer':
+      return `  --token         API token`;
+    default:
+      return '';
+  }
 }
 
 export function generateCLISource(model: CLIModel): string {
@@ -69,13 +126,14 @@ class ConfigManager {
 // ============ HTTP Client ============
 class HttpClient {
   private headers: Record<string, string> = { "Content-Type": "application/json" };
-
-  setToken(token: string): void {
-    this.headers["Authorization"] = \`Bearer \${token}\`;
-  }
+  private authQueryParams: Record<string, string> = {};
 
   setHeader(name: string, value: string): void {
     this.headers[name] = value;
+  }
+
+  setAuthQueryParam(name: string, value: string): void {
+    this.authQueryParams[name] = value;
   }
 
   buildUrl(path: string, pathParams: Record<string, string> = {}, queryParams: Record<string, string> = {}): string {
@@ -84,7 +142,8 @@ class HttpClient {
       url = url.replace(\`{\${key}}\`, encodeURIComponent(value));
     }
     const fullUrl = \`\${BASE_URL}\${url}\`;
-    const query = new URLSearchParams(queryParams).toString();
+    const mergedQuery = { ...this.authQueryParams, ...queryParams };
+    const query = new URLSearchParams(mergedQuery).toString();
     return query ? \`\${fullUrl}?\${query}\` : fullUrl;
   }
 
@@ -130,13 +189,18 @@ function parseArgs(args: string[]): { positional: string[]; flags: Record<string
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        flags[key] = next;
-        i++;
+      const eqIdx = arg.indexOf("=");
+      if (eqIdx > 2) {
+        flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
       } else {
-        flags[key] = true;
+        const key = arg.slice(2);
+        const next = args[i + 1];
+        if (next && !next.startsWith("--")) {
+          flags[key] = next;
+          i++;
+        } else {
+          flags[key] = true;
+        }
       }
     } else {
       positional.push(arg);
@@ -157,7 +221,7 @@ Commands:
 ${model.resources.map((r) => `  ${escapeForTemplate(r.name).padEnd(15)} ${escapeForTemplate(r.description)}`).join("\n")}
 
 Global Options:
-  --token         API token
+${generateAuthHelpFlags(model)}
   --output        Output format (json|table)
   --help          Show help
   --version       Show version
@@ -181,9 +245,7 @@ async function main() {
 
   const outputFormat = (flags.output as string) || "json";
 
-  // Auth
-  const token = (flags.token as string) || process.env.${model.name.toUpperCase().replace(/-/g, "_")}_TOKEN || config.get("token");
-  if (token) http.setToken(token);
+${generateAuthSetup(model)}
 
   // Custom headers
   if (flags.header) {

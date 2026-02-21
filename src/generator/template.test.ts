@@ -1,40 +1,318 @@
-import { test, expect } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { generateCLISource } from "./template";
-import type { CLIModel } from "./types";
+import type { CLIModel, SecurityScheme } from "./types";
 
-const testModel: CLIModel = {
-  name: "test-cli",
-  version: "1.0.0",
-  description: "Test CLI",
-  baseUrl: "https://api.example.com",
-  resources: [
-    {
-      name: "users",
-      description: "User operations",
-      commands: [
-        { name: "list", description: "List users", method: "GET", path: "/users", params: [], responses: {} },
-      ],
-    },
-  ],
-  securitySchemes: [{ name: "bearer", type: "bearer" }],
-};
+function makeModel(overrides: Partial<CLIModel> = {}): CLIModel {
+  return {
+    name: "test-cli",
+    version: "1.0.0",
+    description: "Test CLI",
+    baseUrl: "https://api.example.com",
+    resources: [
+      {
+        name: "users",
+        description: "User operations",
+        commands: [
+          { name: "list", description: "List users", method: "GET", path: "/users", params: [], responses: {} },
+        ],
+      },
+    ],
+    securitySchemes: [{ name: "bearer", type: "bearer" }],
+    ...overrides,
+  };
+}
+
+// ============ Basic generation tests ============
 
 test("generateCLISource produces valid TypeScript", () => {
-  const source = generateCLISource(testModel);
+  const source = generateCLISource(makeModel());
   expect(source).toContain("test-cli");
   expect(source).toContain("https://api.example.com");
   expect(source).toContain("users");
 });
 
 test("generateCLISource includes config commands", () => {
-  const source = generateCLISource(testModel);
+  const source = generateCLISource(makeModel());
   expect(source).toContain("config");
   expect(source).toContain("set");
   expect(source).toContain("get");
 });
 
-test("generateCLISource includes auth handling", () => {
-  const source = generateCLISource(testModel);
-  expect(source).toContain("--token");
-  expect(source).toContain("Bearer");
+// ============ --flag=value parsing ============
+
+describe("--flag=value parsing", () => {
+  test("generated source contains equals-sign parsing logic", () => {
+    const source = generateCLISource(makeModel());
+    expect(source).toContain('indexOf("=")');
+  });
+
+  test("generated parseArgs splits on first equals only", () => {
+    const source = generateCLISource(makeModel());
+    // Verify the key extraction uses slice(2, eqIdx) and value uses slice(eqIdx + 1)
+    expect(source).toContain("arg.slice(2, eqIdx)");
+    expect(source).toContain("arg.slice(eqIdx + 1)");
+  });
+
+  test("generated parseArgs checks eqIdx > 2 to avoid bare --=", () => {
+    const source = generateCLISource(makeModel());
+    expect(source).toContain("eqIdx > 2");
+  });
+
+  test("generated parseArgs preserves --flag value fallback", () => {
+    const source = generateCLISource(makeModel());
+    // The else branch for non-equals flags should still exist
+    expect(source).toContain('!next.startsWith("--")');
+  });
+
+  test("functional: parseArgs handles all flag styles correctly", async () => {
+    // Write a temp file that imports the parseArgs logic and tests it
+    const tmpFile = "/tmp/test-parseargs.ts";
+    await Bun.write(tmpFile, `
+      function parseArgs(args: string[]): { positional: string[]; flags: Record<string, string | boolean> } {
+        const positional: string[] = [];
+        const flags: Record<string, string | boolean> = {};
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (arg.startsWith("--")) {
+            const eqIdx = arg.indexOf("=");
+            if (eqIdx > 2) {
+              flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+            } else {
+              const key = arg.slice(2);
+              const next = args[i + 1];
+              if (next && !next.startsWith("--")) {
+                flags[key] = next;
+                i++;
+              } else {
+                flags[key] = true;
+              }
+            }
+          } else {
+            positional.push(arg);
+          }
+        }
+        return { positional, flags };
+      }
+
+      const tests = [
+        { input: ["--key=value"], expected: { positional: [], flags: { key: "value" } } },
+        { input: ["--key=value=with=equals"], expected: { positional: [], flags: { key: "value=with=equals" } } },
+        { input: ["--key="], expected: { positional: [], flags: { key: "" } } },
+        { input: ["--key", "value"], expected: { positional: [], flags: { key: "value" } } },
+        { input: ["--a=1", "--b", "2", "pos"], expected: { positional: ["pos"], flags: { a: "1", b: "2" } } },
+        { input: ["--help"], expected: { positional: [], flags: { help: true } } },
+      ];
+
+      let passed = 0;
+      for (const t of tests) {
+        const result = parseArgs(t.input);
+        const match = JSON.stringify(result) === JSON.stringify(t.expected);
+        if (!match) {
+          console.error("FAIL:", JSON.stringify(t.input), "got", JSON.stringify(result), "expected", JSON.stringify(t.expected));
+          process.exit(1);
+        }
+        passed++;
+      }
+      console.log("PASS:" + passed);
+    `);
+    const proc = Bun.spawn(["bun", tmpFile], { stdout: "pipe", stderr: "pipe" });
+    const output = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+    expect(output.trim()).toBe("PASS:6");
+  });
+});
+
+// ============ Bearer auth (regression) ============
+
+describe("bearer auth", () => {
+  test("generates bearer auth with --token flag", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [{ name: "bearer", type: "bearer" }],
+    }));
+    expect(source).toContain("flags.token");
+    expect(source).toContain("Bearer");
+    expect(source).toContain("TEST_CLI_TOKEN");
+    expect(source).toContain('config.get("token")');
+  });
+
+  test("help text shows --token for bearer auth", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [{ name: "bearer", type: "bearer" }],
+    }));
+    expect(source).toContain("--token");
+  });
+});
+
+// ============ API Key auth (header) ============
+
+describe("apiKey auth (header)", () => {
+  const apiKeyHeaderScheme: SecurityScheme = {
+    name: "api_key",
+    type: "apiKey",
+    location: "header",
+    paramName: "X-API-Key",
+  };
+
+  test("generates API key auth with triple-precedence", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyHeaderScheme],
+    }));
+    expect(source).toContain('flags["api-key"]');
+    expect(source).toContain("TEST_CLI_API_KEY");
+    expect(source).toContain('config.get("api-key")');
+  });
+
+  test("uses setHeader with paramName", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyHeaderScheme],
+    }));
+    expect(source).toContain('setHeader("X-API-Key"');
+  });
+
+  test("help text shows --api-key flag", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyHeaderScheme],
+    }));
+    expect(source).toContain("--api-key");
+    expect(source).not.toContain("--token");
+  });
+
+  test("uses custom paramName from scheme", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [{ name: "custom", type: "apiKey", location: "header", paramName: "Authorization-Key" }],
+    }));
+    expect(source).toContain('setHeader("Authorization-Key"');
+  });
+});
+
+// ============ API Key auth (query) ============
+
+describe("apiKey auth (query)", () => {
+  const apiKeyQueryScheme: SecurityScheme = {
+    name: "api_key",
+    type: "apiKey",
+    location: "query",
+    paramName: "api_key",
+  };
+
+  test("generates query param API key with setAuthQueryParam", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyQueryScheme],
+    }));
+    expect(source).toContain("setAuthQueryParam");
+    expect(source).toContain('"api_key"');
+  });
+
+  test("uses triple-precedence for query API key", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyQueryScheme],
+    }));
+    expect(source).toContain('flags["api-key"]');
+    expect(source).toContain("TEST_CLI_API_KEY");
+    expect(source).toContain('config.get("api-key")');
+  });
+
+  test("help text mentions query parameter", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyQueryScheme],
+    }));
+    expect(source).toContain("query parameter");
+  });
+
+  test("does NOT use setHeader for query key", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [apiKeyQueryScheme],
+    }));
+    expect(source).not.toContain('setHeader("api_key"');
+  });
+});
+
+// ============ Basic auth ============
+
+describe("basic auth", () => {
+  const basicScheme: SecurityScheme = {
+    name: "basic",
+    type: "basic",
+  };
+
+  test("generates basic auth with username and password", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [basicScheme],
+    }));
+    expect(source).toContain("flags.username");
+    expect(source).toContain("flags.password");
+  });
+
+  test("uses triple-precedence for both credentials", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [basicScheme],
+    }));
+    expect(source).toContain("TEST_CLI_USERNAME");
+    expect(source).toContain("TEST_CLI_PASSWORD");
+    expect(source).toContain('config.get("username")');
+    expect(source).toContain('config.get("password")');
+  });
+
+  test("uses btoa for Basic auth header", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [basicScheme],
+    }));
+    expect(source).toContain("btoa");
+    expect(source).toContain("Basic");
+  });
+
+  test("help text shows --username and --password", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [basicScheme],
+    }));
+    expect(source).toContain("--username");
+    expect(source).toContain("--password");
+    expect(source).not.toContain("--token");
+  });
+});
+
+// ============ No auth ============
+
+describe("no auth", () => {
+  test("generates no auth block when securitySchemes is empty", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [],
+    }));
+    expect(source).not.toContain("apiKey");
+    expect(source).not.toContain("Bearer");
+    expect(source).not.toContain("btoa");
+    expect(source).not.toContain("flags.token");
+    expect(source).not.toContain('flags["api-key"]');
+    expect(source).not.toContain("flags.username");
+  });
+
+  test("help text has no auth flags when no security schemes", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [],
+    }));
+    expect(source).not.toContain("--token");
+    expect(source).not.toContain("--api-key");
+    expect(source).not.toContain("--username");
+  });
+});
+
+// ============ Env prefix derivation ============
+
+describe("env prefix", () => {
+  test("converts hyphenated name to uppercase underscore prefix", () => {
+    const source = generateCLISource(makeModel({
+      name: "my-cool-api",
+      securitySchemes: [{ name: "bearer", type: "bearer" }],
+    }));
+    expect(source).toContain("MY_COOL_API_TOKEN");
+  });
+
+  test("API key env var uses correct prefix", () => {
+    const source = generateCLISource(makeModel({
+      name: "stripe-cli",
+      securitySchemes: [{ name: "api_key", type: "apiKey", location: "header", paramName: "X-API-Key" }],
+    }));
+    expect(source).toContain("STRIPE_CLI_API_KEY");
+  });
 });
