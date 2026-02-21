@@ -266,6 +266,69 @@ function generateOAuthCommands(model: CLIModel): string {
   }`;
 }
 
+function hasAnyBodySchema(model: CLIModel): boolean {
+  return model.resources.some(r =>
+    r.commands.some(c => c.bodySchema && Object.keys(c.bodySchema).length > 0)
+  );
+}
+
+function generateValidateBody(): string {
+  return `
+// ============ Body Validator ============
+function validateBody(schema: any, data: unknown, path: string = ""): string[] {
+  const errors: string[] = [];
+  if (!schema || typeof schema !== "object") return errors;
+
+  // Type checking
+  if (schema.type) {
+    const actualType = Array.isArray(data) ? "array" : typeof data;
+    if (schema.type === "integer") {
+      if (typeof data !== "number" || !Number.isInteger(data)) {
+        errors.push((path || "body") + ": expected integer, got " + (typeof data));
+      }
+    } else if (schema.type === "number") {
+      if (typeof data !== "number") {
+        errors.push((path || "body") + ": expected number, got " + actualType);
+      }
+    } else if (actualType !== schema.type) {
+      errors.push((path || "body") + ": expected " + schema.type + ", got " + actualType);
+    }
+  }
+
+  // Enum checking
+  if (schema.enum && Array.isArray(schema.enum) && !schema.enum.includes(data)) {
+    errors.push((path || "body") + ": must be one of: " + schema.enum.join(", "));
+  }
+
+  // Object validation
+  if (schema.type === "object" && typeof data === "object" && data !== null && !Array.isArray(data)) {
+    if (Array.isArray(schema.required)) {
+      for (const field of schema.required) {
+        if (!(field in (data as Record<string, unknown>))) {
+          errors.push((path ? path + "." : "") + field + ": required field missing");
+        }
+      }
+    }
+    if (schema.properties && typeof schema.properties === "object") {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in (data as Record<string, unknown>)) {
+          errors.push(...validateBody(propSchema, (data as Record<string, unknown>)[key], (path ? path + "." : "") + key));
+        }
+      }
+    }
+  }
+
+  // Array validation
+  if (schema.type === "array" && Array.isArray(data) && schema.items) {
+    data.forEach((item: unknown, i: number) => {
+      errors.push(...validateBody(schema.items, item, path + "[" + i + "]"));
+    });
+  }
+
+  return errors;
+}`;
+}
+
 export function generateCLISource(model: CLIModel): string {
   const resourceCases = model.resources
     .map((r) => generateResourceCase(r.name, r.commands, model))
@@ -371,6 +434,8 @@ function formatTable(data: Record<string, unknown>[]): string {
   const rows = data.map((r) => keys.map((k, i) => String(r[k] ?? "").padEnd(widths[i])).join("  "));
   return [header, sep, ...rows].join("\\n");
 }
+
+${hasAnyBodySchema(model) ? generateValidateBody() : ''}
 
 // ============ Arg Parser ============
 function parseArgs(args: string[]): { positional: string[]; flags: Record<string, string | boolean> } {
@@ -537,6 +602,19 @@ function generateCommandCase(cmd: Command, model: CLIModel): string {
     : "{}";
 
   const hasBody = cmd.method === "POST" || cmd.method === "PUT" || cmd.method === "PATCH";
+  const hasSchema = hasBody && cmd.bodySchema && Object.keys(cmd.bodySchema).length > 0;
+  const validationCode = hasSchema
+    ? `
+      const bodySchema = ${JSON.stringify(cmd.bodySchema)};
+      if (body !== undefined) {
+        const validationErrors = validateBody(bodySchema, body);
+        if (validationErrors.length > 0) {
+          console.error("Validation errors:");
+          validationErrors.forEach((e: string) => console.error("  - " + e));
+          process.exit(1);
+        }
+      }`
+    : "";
   const bodyHandling = hasBody
     ? `
       let body: unknown = undefined;
@@ -561,7 +639,7 @@ function generateCommandCase(cmd: Command, model: CLIModel): string {
           console.error("Error: Invalid JSON in file: " + filePath);
           process.exit(1);
         }
-      }`
+      }${validationCode}`
     : "";
 
   const requestBody = hasBody ? ", body" : "";

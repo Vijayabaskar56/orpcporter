@@ -396,6 +396,230 @@ describe("oauth2 auth", () => {
   });
 });
 
+// ============ Body validation ============
+
+describe("body validation", () => {
+  function makeModelWithBody(bodySchema?: object): CLIModel {
+    return makeModel({
+      securitySchemes: [],
+      resources: [{
+        name: "users",
+        description: "User operations",
+        commands: [{
+          name: "create",
+          description: "Create user",
+          method: "POST",
+          path: "/users",
+          params: [],
+          bodySchema,
+          responses: {},
+        }],
+      }],
+    });
+  }
+
+  test("includes validateBody when commands have bodySchema", () => {
+    const source = generateCLISource(makeModelWithBody({
+      type: "object",
+      required: ["name"],
+      properties: { name: { type: "string" } },
+    }));
+    expect(source).toContain("function validateBody");
+  });
+
+  test("does NOT include validateBody when no commands have bodySchema", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [],
+      resources: [{
+        name: "users",
+        description: "Users",
+        commands: [{ name: "list", description: "List", method: "GET", path: "/users", params: [], responses: {} }],
+      }],
+    }));
+    expect(source).not.toContain("function validateBody");
+  });
+
+  test("does NOT include validateBody for empty bodySchema", () => {
+    const source = generateCLISource(makeModelWithBody({}));
+    expect(source).not.toContain("function validateBody");
+  });
+
+  test("embeds bodySchema as JSON constant", () => {
+    const schema = { type: "object", required: ["name"], properties: { name: { type: "string" } } };
+    const source = generateCLISource(makeModelWithBody(schema));
+    expect(source).toContain("const bodySchema =");
+    expect(source).toContain('"required":["name"]');
+  });
+
+  test("calls validateBody before http.request", () => {
+    const source = generateCLISource(makeModelWithBody({
+      type: "object",
+      required: ["name"],
+      properties: { name: { type: "string" } },
+    }));
+    const validateIdx = source.indexOf("validateBody(bodySchema, body)");
+    const requestIdx = source.indexOf("http.request");
+    expect(validateIdx).toBeGreaterThan(-1);
+    expect(requestIdx).toBeGreaterThan(-1);
+    expect(validateIdx).toBeLessThan(requestIdx);
+  });
+
+  test("shows validation errors on stderr", () => {
+    const source = generateCLISource(makeModelWithBody({
+      type: "object",
+      required: ["name"],
+      properties: { name: { type: "string" } },
+    }));
+    expect(source).toContain("Validation errors");
+  });
+
+  test("no validation code for GET commands", () => {
+    const source = generateCLISource(makeModel({
+      securitySchemes: [],
+      resources: [{
+        name: "users",
+        description: "Users",
+        commands: [{
+          name: "list",
+          description: "List",
+          method: "GET",
+          path: "/users",
+          params: [],
+          bodySchema: { type: "object" }, // even with schema, GET shouldn't validate
+          responses: {},
+        }],
+      }],
+    }));
+    expect(source).not.toContain("const bodySchema =");
+  });
+});
+
+describe("validateBody functional tests", () => {
+  // Test the actual validation logic by running it in a subprocess
+  test("validates required fields, types, enums, nested objects, and arrays", async () => {
+    const tmpFile = "/tmp/test-validate-body.ts";
+    await Bun.write(tmpFile, `
+      function validateBody(schema: any, data: unknown, path: string = ""): string[] {
+        const errors: string[] = [];
+        if (!schema || typeof schema !== "object") return errors;
+        if (schema.type) {
+          const actualType = Array.isArray(data) ? "array" : typeof data;
+          if (schema.type === "integer") {
+            if (typeof data !== "number" || !Number.isInteger(data)) {
+              errors.push((path || "body") + ": expected integer, got " + (typeof data));
+            }
+          } else if (schema.type === "number") {
+            if (typeof data !== "number") {
+              errors.push((path || "body") + ": expected number, got " + actualType);
+            }
+          } else if (actualType !== schema.type) {
+            errors.push((path || "body") + ": expected " + schema.type + ", got " + actualType);
+          }
+        }
+        if (schema.enum && Array.isArray(schema.enum) && !schema.enum.includes(data)) {
+          errors.push((path || "body") + ": must be one of: " + schema.enum.join(", "));
+        }
+        if (schema.type === "object" && typeof data === "object" && data !== null && !Array.isArray(data)) {
+          if (Array.isArray(schema.required)) {
+            for (const field of schema.required) {
+              if (!(field in (data as Record<string, unknown>))) {
+                errors.push((path ? path + "." : "") + field + ": required field missing");
+              }
+            }
+          }
+          if (schema.properties && typeof schema.properties === "object") {
+            for (const [key, propSchema] of Object.entries(schema.properties)) {
+              if (key in (data as Record<string, unknown>)) {
+                errors.push(...validateBody(propSchema, (data as Record<string, unknown>)[key], (path ? path + "." : "") + key));
+              }
+            }
+          }
+        }
+        if (schema.type === "array" && Array.isArray(data) && schema.items) {
+          data.forEach((item: unknown, i: number) => {
+            errors.push(...validateBody(schema.items, item, path + "[" + i + "]"));
+          });
+        }
+        return errors;
+      }
+
+      const tests = [
+        // Required field missing
+        {
+          schema: { type: "object", required: ["name"], properties: { name: { type: "string" } } },
+          data: {},
+          expectErrors: ["name: required field missing"],
+        },
+        // Type mismatch
+        {
+          schema: { type: "object", properties: { age: { type: "number" } } },
+          data: { age: "twenty" },
+          expectErrors: ["age: expected number, got string"],
+        },
+        // Enum violation
+        {
+          schema: { type: "string", enum: ["active", "inactive"] },
+          data: "deleted",
+          expectErrors: ["body: must be one of: active, inactive"],
+        },
+        // Integer validation
+        {
+          schema: { type: "integer" },
+          data: 1.5,
+          expectErrors: ["body: expected integer, got number"],
+        },
+        // Integer valid
+        {
+          schema: { type: "integer" },
+          data: 42,
+          expectErrors: [],
+        },
+        // Array items
+        {
+          schema: { type: "array", items: { type: "number" } },
+          data: [1, "two", 3],
+          expectErrors: ["[1]: expected number, got string"],
+        },
+        // Nested object
+        {
+          schema: { type: "object", properties: { addr: { type: "object", required: ["city"], properties: { city: { type: "string" } } } } },
+          data: { addr: {} },
+          expectErrors: ["addr.city: required field missing"],
+        },
+        // Valid data
+        {
+          schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, age: { type: "number" } } },
+          data: { name: "Alice", age: 30 },
+          expectErrors: [],
+        },
+        // Null/undefined schema
+        {
+          schema: null,
+          data: { anything: true },
+          expectErrors: [],
+        },
+      ];
+
+      let passed = 0;
+      for (const t of tests) {
+        const result = validateBody(t.schema, t.data);
+        const match = JSON.stringify(result) === JSON.stringify(t.expectErrors);
+        if (!match) {
+          console.error("FAIL: expected", JSON.stringify(t.expectErrors), "got", JSON.stringify(result));
+          process.exit(1);
+        }
+        passed++;
+      }
+      console.log("PASS:" + passed);
+    `);
+    const proc = Bun.spawn(["bun", tmpFile], { stdout: "pipe", stderr: "pipe" });
+    const output = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+    expect(output.trim()).toBe("PASS:9");
+  });
+});
+
 // ============ Env prefix derivation ============
 
 describe("env prefix", () => {

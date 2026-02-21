@@ -95,10 +95,10 @@ test("parseOpenAPI extracts OAuth2 security scheme", () => {
   };
   const model = parseOpenAPI(spec);
   expect(model.securitySchemes).toHaveLength(1);
-  expect(model.securitySchemes[0].type).toBe("oauth2");
-  expect(model.securitySchemes[0].authorizationUrl).toBe("https://auth.example.com/authorize");
-  expect(model.securitySchemes[0].tokenUrl).toBe("https://auth.example.com/token");
-  expect(model.securitySchemes[0].scopes).toEqual(["read", "write"]);
+  expect(model.securitySchemes[0]!.type).toBe("oauth2");
+  expect(model.securitySchemes[0]!.authorizationUrl).toBe("https://auth.example.com/authorize");
+  expect(model.securitySchemes[0]!.tokenUrl).toBe("https://auth.example.com/token");
+  expect(model.securitySchemes[0]!.scopes).toEqual(["read", "write"]);
 });
 
 test("parseOpenAPI extracts apiKey security scheme", () => {
@@ -118,7 +118,7 @@ test("parseOpenAPI extracts apiKey security scheme", () => {
   };
   const model = parseOpenAPI(spec);
   expect(model.securitySchemes).toHaveLength(1);
-  expect(model.securitySchemes[0].type).toBe("apiKey");
-  expect(model.securitySchemes[0].location).toBe("header");
-  expect(model.securitySchemes[0].paramName).toBe("X-API-Key");
+  expect(model.securitySchemes[0]!.type).toBe("apiKey");
+  expect(model.securitySchemes[0]!.location).toBe("header");
+  expect(model.securitySchemes[0]!.paramName).toBe("X-API-Key");
 });
