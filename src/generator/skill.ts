@@ -18,7 +18,13 @@ function generateAuthSetupSection(model: CLIModel): string {
     case 'basic':
       return `Run \`${name} config set username <user>\` and \`${name} config set password <pass>\`.`;
     case 'oauth2':
-      return `Run \`${name} oauth login\` to authenticate via browser.`;
+      const scopes = scheme.scopes?.join(', ') || 'read,write';
+      const authUrl = scheme.authorizationUrl || '[authorization_url]';
+      return `1. Register callback URL \`http://localhost:8174/callback\` in your app settings
+2. Run \`${name} oauth login\` to authenticate via browser
+3. The OAuth scopes requested: ${scopes}
+
+Alternatively, manually exchange token at: ${authUrl}`;
     default:
       return 'No authentication required.';
   }

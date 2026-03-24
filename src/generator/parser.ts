@@ -5,7 +5,11 @@ interface OpenAPISpec {
   swagger?: string;
   info: { title: string; version: string; description?: string };
   servers?: Array<{ url: string }>;
+  host?: string;
+  basePath?: string;
+  schemes?: string[];
   paths: Record<string, Record<string, PathOperation>>;
+  securityDefinitions?: Record<string, OpenAPISecurityScheme>;
   components?: {
     securitySchemes?: Record<string, OpenAPISecurityScheme>;
   };
@@ -108,7 +112,26 @@ function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function httpMethodToCommandName(method: string, hasId: boolean): string {
+function operationIdToCommandName(operationId?: string): string | null {
+  if (!operationId) return null;
+  const lowerOp = operationId.toLowerCase();
+  if (lowerOp.startsWith("create") || lowerOp.includes("upload")) return "create";
+  if (lowerOp.startsWith("update") || lowerOp.startsWith("put") || lowerOp.includes("star")) return "update";
+  if (lowerOp.startsWith("delete")) return "delete";
+  if (lowerOp.startsWith("list") || lowerOp.includes("explore")) return "list";
+  if (lowerOp.startsWith("get")) {
+    if (lowerOp.includes("stats")) return "stats";
+    if (lowerOp.includes("zones")) return "zones";
+    if (lowerOp.includes("activities")) return "activities";
+    if (lowerOp.includes("clubs")) return "clubs";
+    return "get";
+  }
+  return null;
+}
+
+function httpMethodToCommandName(method: string, hasId: boolean, operationId?: string): string {
+  const opCommand = operationIdToCommandName(operationId);
+  if (opCommand) return opCommand;
   const map: Record<string, string> = {
     get: hasId ? "get" : "list",
     post: "create",
@@ -138,7 +161,8 @@ function parseParameter(param: OpenAPIParameter): CommandParam {
   };
 }
 
-function parseSecuritySchemes(schemes?: Record<string, OpenAPISecurityScheme>): SecurityScheme[] {
+function parseSecuritySchemes(spec: OpenAPISpec): SecurityScheme[] {
+  const schemes = spec.components?.securitySchemes || spec.securityDefinitions;
   if (!schemes) return [];
   return Object.entries(schemes).map(([name, scheme]) => {
     let type: SecurityScheme["type"] = "bearer";
@@ -148,16 +172,12 @@ function parseSecuritySchemes(schemes?: Record<string, OpenAPISecurityScheme>): 
 
     const result: SecurityScheme = { name, type, location: scheme.in as SecurityScheme["location"], paramName: scheme.name };
 
-    // Extract OAuth2 authorization code flow details
-    if (type === "oauth2" && scheme.flows) {
-      const flow = scheme.flows.authorizationCode;
-      if (flow) {
-        result.authorizationUrl = flow.authorizationUrl;
-        result.tokenUrl = flow.tokenUrl;
-        if (flow.scopes) {
-          result.scopes = Object.keys(flow.scopes);
-        }
-      }
+    // Extract OAuth2 details - both OpenAPI 3.0 and Swagger 2.0 formats
+    if (type === "oauth2") {
+      const flow = (scheme as any).flows?.authorizationCode || (scheme as any);
+      if (flow.authorizationUrl) result.authorizationUrl = flow.authorizationUrl;
+      if (flow.tokenUrl) result.tokenUrl = flow.tokenUrl;
+      if (flow.scopes) result.scopes = Object.keys(flow.scopes);
     }
 
     return result;
@@ -170,7 +190,15 @@ export function parseOpenAPI(spec: unknown): CLIModel {
   const name = slugify(validated.info.title);
   const version = validated.info.version;
   const description = truncateDescription(validated.info.description || validated.info.title);
-  const baseUrl = validated.servers?.[0]?.url || "";
+  
+  let baseUrl = "";
+  if (validated.servers?.[0]?.url) {
+    baseUrl = validated.servers[0].url;
+  } else if ((validated as any).host && (validated as any).basePath) {
+    const s = validated as any;
+    const scheme = s.schemes?.[0] || "https";
+    baseUrl = `${scheme}://${s.host}${s.basePath}`;
+  }
 
   const resourceMap = new Map<string, Command[]>();
 
@@ -193,7 +221,7 @@ export function parseOpenAPI(spec: unknown): CLIModel {
       const bodySchema = bodyContent?.schema;
 
       const command: Command = {
-        name: httpMethodToCommandName(method, hasPathParam),
+        name: httpMethodToCommandName(method, hasPathParam, operation.operationId),
         description: truncateDescription(operation.description || operation.summary || ""),
         method: httpMethod,
         path,
@@ -214,6 +242,6 @@ export function parseOpenAPI(spec: unknown): CLIModel {
     name, description: truncateDescription(`${name} operations`), commands,
   }));
 
-  const securitySchemes = parseSecuritySchemes(validated.components?.securitySchemes);
+  const securitySchemes = parseSecuritySchemes(validated);
   return { name, version, description, baseUrl, resources, securitySchemes };
 }

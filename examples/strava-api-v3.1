@@ -1,0 +1,434 @@
+.TH STRAVA-API-V3 1 "2026-03-24" "3.0.0" "strava-api-v3 Manual"
+.SH NAME
+strava-api-v3 \- The [Swagger Playground](https://developers.strava.com/playground) is the easiest way to familiarize yourself with the Strava API by submitting HTTP requests and observing the responses before you write any client code. It will show what a response will look like with different endpoints depending on the authorization scope you receive from your athletes. To use the Playground, go to https://www.strava.com/settings/api and change your “Authorization Callback Domain” to developers.strava.com. Please note, we only support Swagger 2.0. There is a known issue where you can only select one scope at a time. For more information, please check the section “client code” at https://developers.strava.com/docs.
+.SH SYNOPSIS
+.B strava-api-v3
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B strava-api-v3
+is a command-line interface for The [Swagger Playground](https://developers.strava.com/playground) is the easiest way to familiarize yourself with the Strava API by submitting HTTP requests and observing the responses before you write any client code. It will show what a response will look like with different endpoints depending on the authorization scope you receive from your athletes. To use the Playground, go to https://www.strava.com/settings/api and change your “Authorization Callback Domain” to developers.strava.com. Please note, we only support Swagger 2.0. There is a known issue where you can only select one scope at a time. For more information, please check the section “client code” at https://developers.strava.com/docs..
+It provides access to the API at https://www.strava.com/api/v3.
+.SH COMMANDS
+.SS config
+Manage CLI configuration.
+.TP
+.B strava-api-v3 config set \fIkey\fR \fIvalue\fR
+Set a configuration value.
+.TP
+.B strava-api-v3 config get \fIkey\fR
+Get a configuration value.
+.TP
+.B strava-api-v3 config list
+List all configuration values.
+.TP
+.B strava-api-v3 config delete \fIkey\fR
+Delete a configuration value.
+.SS athletes
+athletes operations
+.TP
+.B strava-api-v3 athletes stats \fIid\fR
+Returns the activity stats of an athlete. Only includes data from activities set to Everyone visibilty.
+.RS
+.TP
+.I id
+The identifier of the athlete. Must match the authenticated athlete. (string, required)
+.RE
+.TP
+.B strava-api-v3 athletes get
+Returns a list of the routes created by the authenticated athlete. Private routes are filtered out unless requested by a token with read_all scope.
+.SS athlete
+athlete operations
+.TP
+.B strava-api-v3 athlete get
+Returns the currently authenticated athlete. Tokens with profile:read_all scope will receive a detailed athlete representation; all others will receive a summary representation.
+.TP
+.B strava-api-v3 athlete update \fIweight\fR
+Update the currently authenticated athlete. Requires profile:write scope.
+.RS
+.TP
+.I weight
+The weight of the athlete in kilograms. (string, required)
+.RE
+.TP
+.B strava-api-v3 athlete zones
+Returns the the authenticated athlete's heart rate and power zones. Requires profile:read_all.
+.TP
+.B strava-api-v3 athlete activities
+Returns the activities of an athlete for a specific identifier. Requires activity:read. Only Me activities will be filtered out unless requested by a token with activity:read_all.
+.RS
+Options:
+.TP
+.BR \-\-before " " \fIstring\fR
+An epoch timestamp to use for filtering activities that have taken place before a certain time.
+.TP
+.BR \-\-after " " \fIstring\fR
+An epoch timestamp to use for filtering activities that have taken place after a certain time.
+.RE
+.TP
+.B strava-api-v3 athlete clubs
+Returns a list of the clubs whose membership includes the authenticated athlete.
+.SS segments
+segments operations
+.TP
+.B strava-api-v3 segments get \fIid\fR
+Returns the specified segment. read_all scope required in order to retrieve athlete-specific segment information, or to retrieve private segments.
+.RS
+.TP
+.I id
+The identifier of the segment. (string, required)
+.RE
+.TP
+.B strava-api-v3 segments update
+List of the authenticated athlete's starred segments. Private segments are filtered out unless requested by a token with read_all scope.
+.TP
+.B strava-api-v3 segments update \fIid\fR
+Stars/Unstars the given segment for the authenticated athlete. Requires profile:write scope.
+.RS
+.TP
+.I id
+The identifier of the segment to star. (string, required)
+.RE
+.TP
+.B strava-api-v3 segments list
+Returns the top 10 segments matching a specified query.
+.RS
+Options:
+.TP
+.BR \-\-bounds " " \fIstring\fR
+The latitude and longitude for two points describing a rectangular boundary for the search: [southwest corner latitutde, southwest corner longitude, northeast corner latitude, northeast corner longitude]
+.TP
+.BR \-\-activity_type " " \fIstring\fR
+Desired activity type.
+.TP
+.BR \-\-min_cat " " \fIstring\fR
+The minimum climbing category.
+.TP
+.BR \-\-max_cat " " \fIstring\fR
+The maximum climbing category.
+.RE
+.TP
+.B strava-api-v3 segments get \fIid\fR
+Returns the given segment's streams. Requires read_all scope for private segments.
+.RS
+.TP
+.I id
+The identifier of the segment. (string, required)
+.RE
+.RS
+Options:
+.TP
+.BR \-\-keys " " \fIstring\fR
+The types of streams to return.
+.TP
+.BR \-\-key_by_type " " \fIstring\fR
+Must be true.
+.RE
+.SS segment_efforts
+segment_efforts operations
+.TP
+.B strava-api-v3 segment_efforts get
+Returns a set of the authenticated athlete's segment efforts for a given segment.  Requires subscription.
+.RS
+Options:
+.TP
+.BR \-\-segment_id " " \fIstring\fR
+The identifier of the segment.
+.TP
+.BR \-\-start_date_local " " \fIstring\fR
+ISO 8601 formatted date time.
+.TP
+.BR \-\-end_date_local " " \fIstring\fR
+ISO 8601 formatted date time.
+.TP
+.BR \-\- " " \fIstring\fR
+
+.RE
+.TP
+.B strava-api-v3 segment_efforts get \fIid\fR
+Returns a segment effort from an activity that is owned by the authenticated athlete. Requires subscription.
+.RS
+.TP
+.I id
+The identifier of the segment effort. (string, required)
+.RE
+.TP
+.B strava-api-v3 segment_efforts get \fIid\fR
+Returns a set of streams for a segment effort completed by the authenticated athlete. Requires read_all scope.
+.RS
+.TP
+.I id
+The identifier of the segment effort. (string, required)
+.RE
+.RS
+Options:
+.TP
+.BR \-\-keys " " \fIstring\fR
+The types of streams to return.
+.TP
+.BR \-\-key_by_type " " \fIstring\fR
+Must be true.
+.RE
+.SS activities
+activities operations
+.TP
+.B strava-api-v3 activities create
+Creates a manual activity for an athlete, requires activity:write scope.
+.TP
+.B strava-api-v3 activities get \fIid\fR
+Returns the given activity that is owned by the authenticated athlete. Requires activity:read for Everyone and Followers activities. Requires activity:read_all for Only Me activities.
+
+We strongly encourage you to display the appropriate attribution that identifies Garmin as the data source and the device name in your application. Please see example below from VeloViewer (that provides an attribution for a Garmin Forerunner device).
+
+![Attribution](/images/device-attribution-image.png)
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.RS
+Options:
+.TP
+.BR \-\-include_all_efforts " " \fIstring\fR
+To include all segments efforts.
+.RE
+.TP
+.B strava-api-v3 activities update \fIid\fR
+Updates the given activity that is owned by the authenticated athlete. Requires activity:write. Also requires activity:read_all in order to update Only Me activities
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.TP
+.B strava-api-v3 activities get \fIid\fR
+Returns the laps of an activity identified by an identifier. Requires activity:read for Everyone and Followers activities. Requires activity:read_all for Only Me activities.
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.TP
+.B strava-api-v3 activities zones \fIid\fR
+Summit Feature. Returns the zones of a given activity. Requires activity:read for Everyone and Followers activities. Requires activity:read_all for Only Me activities.
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.TP
+.B strava-api-v3 activities get \fIid\fR
+Returns the comments on the given activity. Requires activity:read for Everyone and Followers activities. Requires activity:read_all for Only Me activities.
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.RS
+Options:
+.TP
+.BR \-\-page " " \fIstring\fR
+Deprecated. Prefer to use after_cursor.
+.TP
+.BR \-\-per_page " " \fIstring\fR
+Deprecated. Prefer to use page_size.
+.TP
+.BR \-\-page_size " " \fIstring\fR
+Number of items per page. Defaults to 30.
+.TP
+.BR \-\-after_cursor " " \fIstring\fR
+Cursor of the last item in the previous page of results, used to request the subsequent page of results.  When omitted, the first page of results is fetched.
+.RE
+.TP
+.B strava-api-v3 activities get \fIid\fR
+Returns the athletes who kudoed an activity identified by an identifier. Requires activity:read for Everyone and Followers activities. Requires activity:read_all for Only Me activities.
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.TP
+.B strava-api-v3 activities get \fIid\fR
+Returns the given activity's streams. Requires activity:read scope. Requires activity:read_all scope for Only Me activities.
+.RS
+.TP
+.I id
+The identifier of the activity. (string, required)
+.RE
+.RS
+Options:
+.TP
+.BR \-\-keys " " \fIstring\fR
+Desired stream types.
+.TP
+.BR \-\-key_by_type " " \fIstring\fR
+Must be true.
+.RE
+.SS clubs
+clubs operations
+.TP
+.B strava-api-v3 clubs get \fIid\fR
+Returns a given a club using its identifier.
+.RS
+.TP
+.I id
+The identifier of the club. (string, required)
+.RE
+.TP
+.B strava-api-v3 clubs get \fIid\fR
+Returns a list of the athletes who are members of a given club.
+.RS
+.TP
+.I id
+The identifier of the club. (string, required)
+.RE
+.TP
+.B strava-api-v3 clubs get \fIid\fR
+Returns a list of the administrators of a given club.
+.RS
+.TP
+.I id
+The identifier of the club. (string, required)
+.RE
+.TP
+.B strava-api-v3 clubs activities \fIid\fR
+Retrieve recent activities from members of a specific club. The authenticated athlete must belong to the requested club in order to hit this endpoint. Pagination is supported. Athlete profile visibility is respected for all activities.
+.RS
+.TP
+.I id
+The identifier of the club. (string, required)
+.RE
+.SS gear
+gear operations
+.TP
+.B strava-api-v3 gear get \fIid\fR
+Returns an equipment using its identifier.
+.RS
+.TP
+.I id
+The identifier of the gear. (string, required)
+.RE
+.SS routes
+routes operations
+.TP
+.B strava-api-v3 routes get \fIid\fR
+Returns a route using its identifier. Requires read_all scope for private routes.
+.RS
+.TP
+.I id
+The identifier of the route. (string, required)
+.RE
+.TP
+.B strava-api-v3 routes get \fIid\fR
+Returns a GPX file of the route. Requires read_all scope for private routes.
+.RS
+.TP
+.I id
+The identifier of the route. (string, required)
+.RE
+.TP
+.B strava-api-v3 routes get \fIid\fR
+Returns a TCX file of the route. Requires read_all scope for private routes.
+.RS
+.TP
+.I id
+The identifier of the route. (string, required)
+.RE
+.TP
+.B strava-api-v3 routes get \fIid\fR
+Returns the given route's streams. Requires read_all scope for private routes.
+.RS
+.TP
+.I id
+The identifier of the route. (string, required)
+.RE
+.SS uploads
+uploads operations
+.TP
+.B strava-api-v3 uploads create
+Uploads a new data file to create an activity from. Requires activity:write scope.
+.TP
+.B strava-api-v3 uploads create \fIuploadId\fR
+Returns an upload for a given identifier. Requires activity:write scope.
+.RS
+.TP
+.I uploadId
+The identifier of the upload. (string, required)
+.RE
+.SH GLOBAL OPTIONS
+.TP
+.BR \-\-token " " \fItoken\fR
+API authentication token. Can also be set via STRAVA_API_V3_TOKEN environment variable or config file.
+.TP
+.BR \-\-output " " \fIformat\fR
+Output format. Valid values: json, table. Default: json.
+.TP
+.BR \-\-header " " \fIheader\fR
+Custom header in "Name: Value" format.
+.TP
+.BR \-\-help
+Show help message and exit.
+.TP
+.BR \-\-version
+Show version information and exit.
+.SH AUTHENTICATION
+Authentication can be provided in three ways (in order of precedence):
+.TP
+1. Command-line flag: --token
+.TP
+2. Environment variable: STRAVA_API_V3_TOKEN
+.TP
+3. Config file: ~/.config/strava-api-v3/config.json
+
+Supported authentication methods:
+.TP
+.B oauth2
+.SH ENVIRONMENT
+.TP
+.B STRAVA_API_V3_TOKEN
+API authentication token.
+.SH FILES
+.TP
+.I ~/.config/strava-api-v3/config.json
+Configuration file storing persistent settings like API token and base URL.
+.SH EXAMPLES
+.TP
+Set up authentication:
+.RS
+.nf
+$ strava-api-v3 config set token "your-api-token"
+.fi
+.RE
+.TP
+Returns the activity stats of an athlete. Only includes data from activities set to Everyone visibilty.:
+.RS
+.nf
+$ strava-api-v3 athletes stats <id>
+.fi
+.RE
+.TP
+Returns a list of the routes created by the authenticated athlete. Private routes are filtered out unless requested by a token with read_all scope.:
+.RS
+.nf
+$ strava-api-v3 athletes get
+.fi
+.RE
+.TP
+Returns the currently authenticated athlete. Tokens with profile:read_all scope will receive a detailed athlete representation; all others will receive a summary representation.:
+.RS
+.nf
+$ strava-api-v3 athlete get
+.fi
+.RE
+.TP
+Update the currently authenticated athlete. Requires profile:write scope.:
+.RS
+.nf
+$ strava-api-v3 athlete update <weight>
+.fi
+.RE
+.SH SEE ALSO
+.BR curl (1),
+.BR jq (1)
+.SH AUTHORS
+Generated by orpcport from OpenAPI specification.
