@@ -14,7 +14,7 @@ import { join } from "path";
 async function fetchUrl(url: string): Promise<FetchResult> {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "orpcport/1.0",
+      "User-Agent": "ocliporter/0.1.0",
       Accept: "application/json, text/html, */*",
     },
   });
@@ -81,7 +81,7 @@ async function handleExtract(args: string[]) {
   const url = args[0];
 
   if (!url) {
-    console.error("Usage: orpcport extract <url>");
+    console.error("Usage: ocliporter extract <url>");
     process.exit(1);
   }
 
@@ -123,7 +123,7 @@ async function handleGenerate(args: string[]) {
   }
 
   if (!source) {
-    console.error("Usage: orpcport generate <url-or-file> [--name <name>] [--output <dir>] [--mode <package|binary>] [--force] [--allow-private]");
+    console.error("Usage: ocliporter generate <url-or-file> [--name <name>] [--output <dir>] [--mode <package|binary>] [--force] [--allow-private]");
     process.exit(1);
   }
 
@@ -266,9 +266,9 @@ async function main() {
 
   if (!command || command === "--help" || command === "-h") {
     console.log(`
-orpcport - OpenAPI CLI Generator
+ocliporter - OpenAPI CLI Generator
 
-Usage: orpcport <command> [options]
+Usage: ocliporter <command> [options]
 
 Commands:
   extract <url>              Extract OpenAPI spec from documentation URL
@@ -282,9 +282,9 @@ Generate Options:
   --allow-private            Allow fetching from private/internal IPs
 
 Examples:
-  orpcport extract https://example.com/api/docs
-  orpcport generate https://example.com/api/docs --name myapi --output ./bin/
-  orpcport generate ./openapi.json --name myapi
+  ocliporter extract https://example.com/api/docs
+  ocliporter generate https://example.com/api/docs --name myapi --output ./bin/
+  ocliporter generate ./openapi.json --name myapi
 `);
     process.exit(command ? 0 : 1);
   }
@@ -295,7 +295,7 @@ Examples:
     await handleGenerate(cmdArgs);
   } else {
     console.error(`Unknown command: ${command}`);
-    console.error("Run 'orpcport --help' for usage.");
+    console.error("Run 'ocliporter --help' for usage.");
     process.exit(1);
   }
 }

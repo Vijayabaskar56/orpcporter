@@ -24,7 +24,7 @@ describe("main entry point", () => {
     const stdout = await new Response(proc.stdout).text();
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("orpcport");
+    expect(stdout).toContain("ocliporter");
     expect(stdout).toContain("extract");
     expect(stdout).toContain("generate");
   }, 15000);
@@ -39,7 +39,7 @@ describe("main entry point", () => {
     const stdout = await new Response(proc.stdout).text();
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("orpcport");
+    expect(stdout).toContain("ocliporter");
   }, 15000);
 
   test("shows help but exits 1 when no args provided", async () => {
@@ -52,7 +52,7 @@ describe("main entry point", () => {
     const stdout = await new Response(proc.stdout).text();
 
     expect(exitCode).toBe(1);
-    expect(stdout).toContain("orpcport");
+    expect(stdout).toContain("ocliporter");
   }, 15000);
 
   // Unknown command
@@ -67,7 +67,7 @@ describe("main entry point", () => {
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Unknown command: foobar");
-    expect(stderr).toContain("Run 'orpcport --help' for usage");
+    expect(stderr).toContain("Run 'ocliporter --help' for usage");
   }, 15000);
 
   // Extract without URL
@@ -81,7 +81,7 @@ describe("main entry point", () => {
     const stderr = await new Response(proc.stderr).text();
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("Usage: orpcport extract");
+    expect(stderr).toContain("Usage: ocliporter extract");
   }, 15000);
 
   // Generate without source
@@ -95,7 +95,7 @@ describe("main entry point", () => {
     const stderr = await new Response(proc.stderr).text();
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("Usage: orpcport generate");
+    expect(stderr).toContain("Usage: ocliporter generate");
   }, 15000);
 
   // Generate with invalid name

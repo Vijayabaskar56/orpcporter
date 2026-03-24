@@ -1,11 +1,11 @@
 {
-  "name": "orpcport",
-  "version": "1.0.0",
+  "name": "ocliporter",
+  "version": "0.1.0",
   "description": "CLI generator that creates native command-line interfaces from OpenAPI specifications",
   "module": "index.ts",
   "type": "module",
   "bin": {
-    "orpcport": "./index.ts"
+    "ocliporter": "./index.ts"
   },
   "files": [
     "index.ts",
