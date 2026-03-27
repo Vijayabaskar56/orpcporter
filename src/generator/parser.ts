@@ -166,9 +166,23 @@ function parseSecuritySchemes(spec: OpenAPISpec): SecurityScheme[] {
   if (!schemes) return [];
   return Object.entries(schemes).map(([name, scheme]) => {
     let type: SecurityScheme["type"] = "bearer";
-    if (scheme.type === "apiKey") type = "apiKey";
-    else if (scheme.type === "http" && scheme.scheme === "basic") type = "basic";
-    else if (scheme.type === "oauth2") type = "oauth2";
+    
+    // Check for custom x-auth-type extension first
+    const customType = (scheme as any)['x-auth-type'];
+    if (customType === 'session') {
+      type = 'session';
+    } else if (scheme.type === "apiKey") {
+      // Detect session auth by Cookie header
+      if (scheme.name === "Cookie" && scheme.in === "header") {
+        type = "session";
+      } else {
+        type = "apiKey";
+      }
+    } else if (scheme.type === "http" && scheme.scheme === "basic") {
+      type = "basic";
+    } else if (scheme.type === "oauth2") {
+      type = "oauth2";
+    }
 
     const result: SecurityScheme = { name, type, location: scheme.in as SecurityScheme["location"], paramName: scheme.name };
 
@@ -178,6 +192,12 @@ function parseSecuritySchemes(spec: OpenAPISpec): SecurityScheme[] {
       if (flow.authorizationUrl) result.authorizationUrl = flow.authorizationUrl;
       if (flow.tokenUrl) result.tokenUrl = flow.tokenUrl;
       if (flow.scopes) result.scopes = Object.keys(flow.scopes);
+    }
+
+    // Extract session login URL from extension
+    if (type === "session") {
+      const loginUrl = (scheme as any)['x-login-url'];
+      if (loginUrl) result.loginUrl = loginUrl;
     }
 
     return result;

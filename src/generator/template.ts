@@ -51,6 +51,19 @@ function generateAuthSetup(model: CLIModel): string {
   // Bearer Token Auth
   const token = (flags.token as string) || process.env.${envPrefix}_TOKEN || config.get("token");
   if (token) http.setHeader("Authorization", \`Bearer \${token}\`);`;
+    case 'session':
+      return `
+  // Session Auth (cookie-based)
+  const sessionCookie = config.get("session-cookie");
+  if (sessionCookie) {
+    http.setHeader("Cookie", sessionCookie);
+    http.setHeader("X-Device", JSON.stringify({
+      platform: "web",
+      version: 6430,
+      id: config.get("device-id") || "cli-" + Date.now(),
+    }));
+    http.setHeader("User-Agent", "Mozilla/5.0 (rv:145.0) Firefox/145.0");
+  }`;
     case 'oauth2':
       return `
   // OAuth2 Auth
@@ -115,11 +128,136 @@ function generateAuthHelpFlags(model: CLIModel): string {
   --password      Password for basic auth`;
     case 'bearer':
       return `  --token         API token`;
+    case 'session':
+      return `  auth            Session authentication (login/logout/status)`;
     case 'oauth2':
       return `  oauth           OAuth2 authentication (login/logout/status)`;
     default:
       return '';
   }
+}
+
+function generateSessionCommands(model: CLIModel): string {
+  const scheme = model.securitySchemes[0];
+  if (!scheme || scheme.type !== 'session') return '';
+
+  const loginUrl = scheme.loginUrl || `${model.baseUrl}/user/signon`;
+
+  return `
+  // Session Auth commands
+  if (cmd === "auth") {
+    if (subcmd === "login") {
+      let username = (flags.username as string) || process.env.${model.name.toUpperCase().replace(/-/g, "_")}_USERNAME;
+      let password = (flags.password as string) || process.env.${model.name.toUpperCase().replace(/-/g, "_")}_PASSWORD;
+
+      if (!username || !password) {
+        console.error("Error: Username and password required.");
+        console.error("Usage: " + CLI_NAME + " auth login --username <email> --password <password>");
+        console.error("Or set environment variables: ${model.name.toUpperCase().replace(/-/g, "_")}_USERNAME and ${model.name.toUpperCase().replace(/-/g, "_")}_PASSWORD");
+        process.exit(1);
+      }
+
+      // Generate device ID (24-char hex like MongoDB ObjectId)
+      const deviceId = Array.from({length: 24}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
+      try {
+        // TickTick requires these query params for login
+        const loginUrl = ${JSON.stringify(loginUrl)} + "?wc=true&remember=true";
+        const loginResp = await fetch(loginUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (rv:145.0) Firefox/145.0",
+            "X-Device": JSON.stringify({ platform: "web", version: 6430, id: deviceId }),
+          },
+          body: JSON.stringify({ username, password }),
+        });
+
+        if (!loginResp.ok) {
+          const errBody = await loginResp.text();
+          // Parse error for better messaging
+          try {
+            const errData = JSON.parse(errBody);
+            if (errData.errorCode === "incorrect_password_too_many_times") {
+              console.error("Error: Too many login attempts. Please wait a few minutes and try again.");
+              console.error("TickTick rate-limits login attempts after multiple failures.");
+            } else if (errData.errorCode === "username_password_not_match") {
+              console.error("Error: Invalid username or password. Please check your credentials.");
+            } else {
+              console.error("Error: Login failed: " + errBody);
+            }
+          } catch {
+            console.error("Error: Login failed: " + errBody);
+          }
+          process.exit(1);
+        }
+
+        // Get user info from response
+        const userData = await loginResp.json() as Record<string, unknown>;
+
+        // Check for 2FA requirement
+        if (userData.authId && !userData.token) {
+          console.error("Error: Two-factor authentication required.");
+          console.error("This CLI does not currently support 2FA.");
+          process.exit(1);
+        }
+
+        if (!userData.token) {
+          console.error("Error: No token received. Login failed.");
+          process.exit(1);
+        }
+
+        // Store session token as cookie
+        const sessionCookie = "t=" + userData.token;
+        config.set("session-cookie", sessionCookie);
+        config.set("device-id", deviceId);
+        config.set("session-username", username);
+        if (userData.inboxId) config.set("inbox-id", String(userData.inboxId));
+
+        console.log("Authentication successful! Session stored.");
+        console.log("Username: " + username);
+        if (userData.pro) console.log("Pro: Yes");
+      } catch (err) {
+        console.error("Error: Login failed:", err);
+        process.exit(1);
+      }
+      return;
+    }
+
+    if (subcmd === "logout") {
+      config.delete("session-cookie");
+      config.delete("device-id");
+      config.delete("session-username");
+      config.delete("inbox-id");
+      console.log("Session cleared.");
+      return;
+    }
+
+    if (subcmd === "status") {
+      const cookie = config.get("session-cookie");
+      if (!cookie) {
+        console.log("Not authenticated. Run: " + CLI_NAME + " auth login");
+        return;
+      }
+      const username = config.get("session-username");
+      console.log("Status: Authenticated");
+      if (username) console.log("Username: " + username);
+      console.log("Session: Active");
+      return;
+    }
+
+    console.log(\`Usage: \${CLI_NAME} auth <login|logout|status>\`);
+    console.log("");
+    console.log("Commands:");
+    console.log("  login    Login with username and password");
+    console.log("  logout   Clear session");
+    console.log("  status   Check authentication status");
+    console.log("");
+    console.log("Options for login:");
+    console.log("  --username    Username/email");
+    console.log("  --password    Password");
+    return;
+  }`;
 }
 
 function generateOAuthCommands(model: CLIModel): string {
@@ -532,6 +670,7 @@ ${generateAuthSetup(model)}
   }
 
 ${generateOAuthCommands(model)}
+${generateSessionCommands(model)}
 
 ${resourceCases}
 
