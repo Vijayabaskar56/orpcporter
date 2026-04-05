@@ -49,7 +49,7 @@ function generateAuthSetup(model: CLIModel): string {
     case 'bearer':
       return `
   // Bearer Token Auth
-  const token = (flags.token as string) || process.env.${envPrefix}_TOKEN || config.get("token");
+  const token = (flags.token as string) || process.env.${envPrefix}_TOKEN || config.get("token") || config.get("api_key") || config.get("oauth-access-token");
   if (token) http.setHeader("Authorization", \`Bearer \${token}\`);`;
     case 'session':
       return `
@@ -66,8 +66,8 @@ function generateAuthSetup(model: CLIModel): string {
   }`;
     case 'oauth2':
       return `
-  // OAuth2 Auth
-  const oauthToken = config.get("oauth-access-token");
+  // OAuth2 Auth (also supports simple Bearer token via token/api_key)
+  const oauthToken = config.get("oauth-access-token") || config.get("token") || config.get("api_key");
   const oauthExpiry = config.get("oauth-token-expiry");
   if (oauthToken) {
     // Check if token is expired and refresh if possible

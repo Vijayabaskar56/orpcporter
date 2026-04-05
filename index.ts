@@ -166,8 +166,15 @@ async function handleGenerate(args: string[]) {
 
     const forceFlag = args.includes("--force");
 
+    // In package mode, put generated files in a subdirectory to avoid polluting the generator's dir
+    const isPackageMode = mode === "package";
+    const generatedDir = isPackageMode ? join(output, cliName) : output;
+    if (isPackageMode && !existsSync(generatedDir)) {
+      mkdirSync(generatedDir, { recursive: true });
+    }
+
     // Write man page
-    const manPath = join(output, `${cliName}.1`);
+    const manPath = join(generatedDir, `${cliName}.1`);
     if (existsSync(manPath) && !forceFlag) {
       console.error(`Error: ${manPath} already exists. Use --force to overwrite.`);
       process.exit(1);
@@ -175,7 +182,7 @@ async function handleGenerate(args: string[]) {
     writeFileSync(manPath, manPage);
 
     // Write skill file
-    const skillPath = join(output, `${cliName}-skill.md`);
+    const skillPath = join(generatedDir, `${cliName}-skill.md`);
     if (existsSync(skillPath) && !forceFlag) {
       console.error(`Error: ${skillPath} already exists. Use --force to overwrite.`);
       process.exit(1);
@@ -184,7 +191,7 @@ async function handleGenerate(args: string[]) {
 
     if (mode === "package") {
       // Package mode: write .ts source directly (no compilation)
-      const tsPath = join(output, `${cliName}.ts`);
+      const tsPath = join(generatedDir, `${cliName}.ts`);
       if (existsSync(tsPath) && !forceFlag) {
         console.error(`Error: ${tsPath} already exists. Use --force to overwrite.`);
         process.exit(1);
@@ -193,7 +200,7 @@ async function handleGenerate(args: string[]) {
       chmodSync(tsPath, 0o755);
 
       // Write package.json for the generated CLI
-      const pkgJsonPath = join(output, "package.json");
+      const pkgJsonPath = join(generatedDir, "package.json");
       if (existsSync(pkgJsonPath) && !forceFlag) {
         console.error(`Error: ${pkgJsonPath} already exists. Use --force to overwrite.`);
         process.exit(1);
@@ -219,7 +226,7 @@ To run:
   bun ${tsPath} --help
 
 To install locally:
-  cd ${output} && bun link
+  cd ${generatedDir} && bun link
 
 To use as Claude Code skill:
   cp ${skillPath} .claude/commands/

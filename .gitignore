@@ -1,0 +1,12 @@
+# Generated CLIs (outputs)
+*.ts
+*.1
+*-skill.md
+
+# Bundled specs
+*.yaml
+*.json
+
+# Compiled binaries
+ocliporter
+/node_modules/

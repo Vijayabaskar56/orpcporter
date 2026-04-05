@@ -61,12 +61,14 @@ interface OpenAPISecurityScheme {
 const MAX_PATHS = 500;
 const MAX_PARAMS_PER_OPERATION = 50;
 const MAX_DESCRIPTION_LENGTH = 2000;
+const MAX_SHORT_DESCRIPTION = 80;
 
-function truncateDescription(desc: unknown): string {
+function truncateDescription(desc: unknown, short = false): string {
   if (desc == null) return '';
   const str = String(desc);
-  if (str.length > MAX_DESCRIPTION_LENGTH) {
-    return str.slice(0, MAX_DESCRIPTION_LENGTH) + '...';
+  const maxLen = short ? MAX_SHORT_DESCRIPTION : MAX_DESCRIPTION_LENGTH;
+  if (str.length > maxLen) {
+    return str.slice(0, maxLen) + '...';
   }
   return str;
 }
@@ -115,23 +117,62 @@ function slugify(text: string): string {
 function operationIdToCommandName(operationId?: string): string | null {
   if (!operationId) return null;
   const lowerOp = operationId.toLowerCase();
+
+  // Handle common CRUD patterns
   if (lowerOp.startsWith("create") || lowerOp.includes("upload")) return "create";
   if (lowerOp.startsWith("update") || lowerOp.startsWith("put") || lowerOp.includes("star")) return "update";
-  if (lowerOp.startsWith("delete")) return "delete";
+  if (lowerOp.startsWith("delete") && !lowerOp.includes("undelete")) return "delete";
+  if (lowerOp.includes("undelete")) return "undelete";
   if (lowerOp.startsWith("list") || lowerOp.includes("explore")) return "list";
+
+  // Handle Splitwise-style operationIds: delete_group, add_user_to_group, remove_user_from_group
+  if (lowerOp.startsWith("add_")) return "add-user";
+  if (lowerOp.startsWith("remove_")) return "remove-user";
+
   if (lowerOp.startsWith("get")) {
     if (lowerOp.includes("stats")) return "stats";
     if (lowerOp.includes("zones")) return "zones";
     if (lowerOp.includes("activities")) return "activities";
-    if (lowerOp.includes("clubs")) return "clubs";
+    if (lowerOp.includes("friends") || lowerOp.includes("clubs")) return "list";
+    if (lowerOp.includes("all") || lowerOp.includes("_list")) return "list";
     return "get";
   }
+
+  // Handle multi-word operationIds: delete_group -> delete, add_user_to_group -> add-user
+  const parts = lowerOp.split(/[_\s-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    // First part is likely the verb
+    const first = parts[0];
+    if (['get', 'list', 'create', 'update', 'delete', 'undelete', 'add', 'remove'].includes(first)) {
+      return first === 'add' ? 'add-user' : first === 'remove' ? 'remove-user' : first;
+    }
+    // Otherwise last part is the noun, first is verb
+    const verb = parts[0];
+    if (['get', 'list', 'create', 'update', 'delete', 'undelete', 'add', 'remove'].includes(verb)) {
+      return verb === 'add' ? 'add-user' : verb === 'remove' ? 'remove-user' : verb;
+    }
+  }
+
   return null;
 }
 
-function httpMethodToCommandName(method: string, hasId: boolean, operationId?: string): string {
+function httpMethodToCommandName(method: string, hasId: boolean, operationId?: string, path?: string): string {
   const opCommand = operationIdToCommandName(operationId);
   if (opCommand) return opCommand;
+
+  // For compound action paths like /delete_group/{id}, derive from path segment
+  if (path) {
+    const segments = path.split('/').filter(Boolean);
+    const action = segments.find(s => !s.startsWith('{')) || '';
+    // Map compound action names to commands
+    if (action.includes('undelete')) return 'undelete';
+    if (action.startsWith('add_')) return 'add-user';
+    if (action.startsWith('remove_')) return 'remove-user';
+    if (action.startsWith('delete')) return 'delete';
+    if (action.startsWith('create')) return 'create';
+    if (action.startsWith('update')) return 'update';
+  }
+
   const map: Record<string, string> = {
     get: hasId ? "get" : "list",
     post: "create",
@@ -142,10 +183,45 @@ function httpMethodToCommandName(method: string, hasId: boolean, operationId?: s
   return map[method.toLowerCase()] || method.toLowerCase();
 }
 
+// Strip common action prefixes from resource names to get the noun
+const ACTION_PREFIXES = ['get_', 'create_', 'update_', 'delete_', 'list_', 'add_', 'remove_', 'undelete_'];
+// Common nouns to recognize and pluralize
+const PLURALIZABLE = new Set(['group', 'user', 'friend', 'friend', 'expense', 'comment', 'notification', 'category', 'currency']);
+
 function extractResourceName(path: string): string {
   const segments = path.split("/").filter(Boolean);
   for (const seg of segments) {
-    if (!seg.startsWith("{")) return seg;
+    if (!seg.startsWith("{")) {
+      let noun = seg;
+
+      // Strip action prefix if present
+      for (const prefix of ACTION_PREFIXES) {
+        if (noun.startsWith(prefix)) {
+          noun = noun.slice(prefix.length);
+          break;
+        }
+      }
+
+      // Handle compound paths like 'user_to_group' -> strip to 'group'
+      // 'add_user_to_group' -> 'group', 'remove_user_from_group' -> 'group'
+      if (noun.includes('_to_') || noun.includes('_from_') || noun.includes('_in_')) {
+        const parts = noun.split('_');
+        // Take the last meaningful noun
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (!['to', 'from', 'in', 'of', 'the', 'a', 'an'].includes(parts[i]) && parts[i].length > 2) {
+            noun = parts[i];
+            break;
+          }
+        }
+      }
+
+      // Pluralize common nouns
+      if (PLURALIZABLE.has(noun)) {
+        noun = noun + 's';
+      }
+
+      return noun;
+    }
   }
   return segments[0]?.replace(/[{}]/g, "") || "root";
 }
@@ -209,7 +285,10 @@ export function parseOpenAPI(spec: unknown): CLIModel {
 
   const name = slugify(validated.info.title);
   const version = validated.info.version;
-  const description = truncateDescription(validated.info.description || validated.info.title);
+  // Use summary if available, otherwise first line of description
+  const rawDesc = validated.info.description || validated.info.title || '';
+  const firstLine = rawDesc.split('\n')[0].trim();
+  const description = truncateDescription(firstLine, true);
   
   let baseUrl = "";
   if (validated.servers?.[0]?.url) {
@@ -240,9 +319,13 @@ export function parseOpenAPI(spec: unknown): CLIModel {
       const bodyContent = operation.requestBody?.content?.["application/json"];
       const bodySchema = bodyContent?.schema;
 
+      // Prefer summary for short description, fall back to first line of description
+      const opDescRaw = operation.summary || operation.description || '';
+      const opDesc = truncateDescription(opDescRaw.split('\n')[0].trim(), true);
+
       const command: Command = {
-        name: httpMethodToCommandName(method, hasPathParam, operation.operationId),
-        description: truncateDescription(operation.description || operation.summary || ""),
+        name: httpMethodToCommandName(method, hasPathParam, operation.operationId, path),
+        description: opDesc,
         method: httpMethod,
         path,
         params,
@@ -259,7 +342,7 @@ export function parseOpenAPI(spec: unknown): CLIModel {
   }
 
   const resources: Resource[] = Array.from(resourceMap.entries()).map(([name, commands]) => ({
-    name, description: truncateDescription(`${name} operations`), commands,
+    name, description: truncateDescription(`${name} operations`, true), commands,
   }));
 
   const securitySchemes = parseSecuritySchemes(validated);
